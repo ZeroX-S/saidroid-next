@@ -120,7 +120,8 @@ setup payload 的 Java/D8/hidden-API 编码构建也包括在内。
 正常 launcher 刷新及损坏应用记录拒绝。
 
 这些是安装事务和辅助构建验证，API28 fixture 不代表真实 API28 ART 已启动。
-本轮未安装手机包、切换手机活动运行时、重跑真机 UI 或完整 CTS。
+上述管理层首轮验证未安装手机包、切换手机活动运行时、重跑真机 UI 或完整
+CTS。后续 PR3 整合的构建、API29 真机冷激活及 QQ/WebView 验证记录见下文链接。
 
 ## PR3 整合
 

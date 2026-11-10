@@ -76,3 +76,42 @@ receipt only after matching its exact legacy fields, kernel registration,
 source/target ownership and device numbers, absence of foreign consumers, and
 Binder protocol 8. Without an existing receipt it selects only the supported
 dedicated device names. Neither migration widens the ART parent's permissions.
+
+## Pixel 3a verification, 2026-11-10
+
+The isolated API29 candidate is
+`saildroid-runtime-api29-r324a-dev-20261110-0.324.1-4.aarch64`, installed under
+`/opt/saildroid/releases/api29-r324a-dev-20261110`. Its RPM SHA-256 is
+`3c1dd229de8acff53b5d4c14735b0dbd1718aeb7dcdf8a2f5e95d6bd7ddd5bbf`.
+The new `select-api 29 --release ... --apply` path activated it while preserving
+the previous releases. Package and manifest verification passed. An ordinary
+reboot produced a different boot ID and a fresh Lipstick process; the user
+confirmed that desktop touch and swipes recovered.
+
+The API28 and API29 product builds passed. The VM regression run passed 19
+groups, including 85 activation cases under each of umask 022 and 077, both
+API window/input/permission variants, native identity/audio, Binder and WebView
+geometry. Eight additional API28 helper groups passed. The final Binder
+migration fixtures passed 23 cases under each umask. Five registry checks ran
+through the actual packaged API29 ART CLI, including expected rejection cases.
+
+On the rebooted phone, a physical QQ message long press and Quote tap targeted
+the non-focusable `PopupWindow`. The input then displayed the quoted message
+preview and corresponding @ text, with an IME commit marker. The quote and
+draft were cancelled, the editor was checked empty, and the owned QQ process
+exited. Menu dismissal alone was not counted as a successful quote.
+
+The controlled WebView verification page rendered actual before/after pixels
+and passed ten checks: initial load, cookies, annotated-only Java interfaces,
+physical input, Java callback, JavaScript prompt, custom navigation callback,
+redirect, HTTP headers and HTTP cookies. Normal close returned exit status 0;
+all four owned app/helper process identities disappeared. Earlier harness
+attempts with incomplete process reaping were retained as failed attempts.
+
+This proves the renderer prerequisite and controlled verification flow. The
+actual WeChat account verification page still needs its own observation;
+starting WeChat at its welcome page does not satisfy that acceptance check.
+The phone tests used API29. A complete API28 phone runtime, cross-API phone
+switching and a trusted interactive permission broker remain separate work.
+Full CTS was not rerun for this integration. Every completed visible test
+restored actual backlight brightness to 0.
