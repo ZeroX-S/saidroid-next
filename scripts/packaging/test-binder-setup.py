@@ -29,6 +29,7 @@ class BinderSetupTests(unittest.TestCase):
         (self.root/'dev').mkdir(mode=0o755)
         (self.root/'dev').chmod(0o755)
         self.account = types.SimpleNamespace(pw_uid=65534, pw_gid=65534)
+        self.module.ART_DIRECTORY = self.root / 'home/art'
         self.module.RUNTIME = self.root / 'run/saildroid-binder'
         self.module.RUNTIME.parent.mkdir()
         self.module.FILESYSTEM = self.module.RUNTIME / 'binderfs'
@@ -166,6 +167,49 @@ class BinderSetupTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'Untrusted directory'):
             self.module.root_directory(path, 0o755)
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o700)
+
+    def test_private_art_parent_is_preserved_across_provision_and_retry(self):
+        path = self.module.ART_DIRECTORY
+        os.chown(path, 0, self.account.pw_gid)
+        path.chmod(0o750)
+        before = path.stat()
+        with patch.object(self.module.os, 'chown', wraps=os.chown) as chown, \
+                patch.object(self.module.os, 'chmod', wraps=os.chmod) as chmod:
+            self.provision()
+            self.provision()
+            self.assertFalse(any(call.args[0] == path for call in chown.call_args_list))
+            self.assertFalse(any(call.args[0] == path for call in chmod.call_args_list))
+        after = path.stat()
+        self.assertEqual((after.st_uid, after.st_gid, stat.S_IMODE(after.st_mode)),
+                         (0, self.account.pw_gid, 0o750))
+        self.assertEqual((before.st_dev, before.st_ino), (after.st_dev, after.st_ino))
+
+    def test_private_art_parent_rejects_unsafe_modes_and_owners(self):
+        path = self.module.ART_DIRECTORY
+        for uid, gid, mode in ((0, self.account.pw_gid, 0o770),
+                               (self.account.pw_uid, self.account.pw_gid, 0o750),
+                               (0, 0, 0o750), (0, self.account.pw_gid, 0o700)):
+            with self.subTest(uid=uid, gid=gid, mode=oct(mode)):
+                os.chown(path, uid, gid)
+                path.chmod(mode)
+                with self.assertRaisesRegex(RuntimeError, 'Untrusted directory'):
+                    self.provision()
+                info = path.stat()
+                self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)),
+                                 (uid, gid, mode))
+                self.assertFalse(self.mounts)
+
+    def test_private_art_parent_rejects_link(self):
+        path = self.module.ART_DIRECTORY
+        real = path.with_name('real-art')
+        path.rename(real)
+        os.chown(real, 0, self.account.pw_gid)
+        real.chmod(0o750)
+        path.symlink_to(real)
+        with self.assertRaisesRegex(RuntimeError, 'Linked directory'):
+            self.provision()
+        self.assertTrue(path.is_symlink())
+        self.assertFalse(self.mounts)
 
     def test_directory_preflight_preserves_ownership_on_failure(self):
         self.module.DIRECTORY.mkdir(parents=True)

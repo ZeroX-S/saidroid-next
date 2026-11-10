@@ -20,6 +20,7 @@ DIRECTORY = Path('/home/art/runtime/binder')
 TARGET = DIRECTORY / 'binder'
 METADATA = DIRECTORY / 'provision.json'
 SCHEMA = 'saildroid-binderfs-provision-v1'
+ART_DIRECTORY = Path('/home/art')
 
 
 def root_directory(path, mode):
@@ -46,7 +47,16 @@ def root_directory(path, mode):
 
 
 def prepare_directories(account):
-    root_directory(Path('/home/art'), 0o755)
+    # Existing installations restrict traversal to the phone-user group.
+    # Preserve that secure parent instead of widening it to world-readable.
+    path = ART_DIRECTORY
+    if path.resolve() != path:
+        raise RuntimeError('Linked directory: ' + str(path))
+    info = path.lstat() if path.exists() else None
+    if not (info is not None and stat.S_ISDIR(info.st_mode)
+            and info.st_uid == 0 and info.st_gid == account.pw_gid
+            and stat.S_IMODE(info.st_mode) == 0o750):
+        root_directory(path, 0o755)
     # Validate both directories before migrating existing ownership.
     for path, allowed in ((DIRECTORY.parent, {'binder'}),
                           (DIRECTORY, {'binder', 'provision.json'})):
