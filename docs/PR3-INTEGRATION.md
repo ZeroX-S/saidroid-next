@@ -138,11 +138,24 @@ attempts with incomplete process reaping were retained as failed attempts.
 The actual WeChat verification page also loaded and accepted input; the user
 confirmed that it could be used. A later login attempt, after the user entered
 the SMS code, displayed `uuid_failed`. The native log contains completed page
-loads and input events without a renderer failure. The first WebView completed
-the `__wx` bridge handshake; the next WebView did not show the same handshake.
-That difference is under investigation and is not proof of the error's cause.
+loads and input events without a renderer failure. On the `r324b` retry, six
+WebViews completed loading and three performed the `__wx` handshake and called
+`mmsf0001` three times each. There were no native service-identity or runtime
+startup failures. The user still reported `uuid_failed`, with one attempt
+reaching QR verification. These observations establish that the bridge was
+called; they do not establish that valid security information reached the page.
 WeChat login is not accepted as passing. Verification tickets and account
 details remain private; no successful security result is synthesized.
+
+An additional regression was reproduced on both API frameworks: injecting a
+native callback with `loadUrl("javascript:...")` replaced the provider's document
+URL with the script and cleared its title. The shared provider now dispatches
+the script before changing navigation state. The focused
+`test-webview-javascript-state-vm.py` fixture fails against the old source and
+passes against the fix on API28 and API29. It verifies the actual provider's
+URL/title/load state and exact transport command while starting no renderer.
+This fixes the state corruption; its connection to WeChat's login failure
+remains unproven.
 
 These checks prove the renderer prerequisite and controlled verification flow.
 The phone tests used API29. A complete API28 phone runtime, cross-API phone

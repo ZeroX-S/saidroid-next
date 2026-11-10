@@ -820,12 +820,14 @@ public final class SdWebViewProvider {
             // ---- navigation: recorded, reported, never faked as success
             if (name.equals("loadUrl")) {
                 String target = args != null && args.length > 0 ? String.valueOf(args[0]) : "(null)";
-                url = target;
-                title = "";
                 if (target.startsWith("javascript:") && engine != null) {
+                    // Executing a native bridge callback does not navigate the
+                    // document or replace the URL used by native origin checks.
                     try { command(new JSONObject().put("op","eval").put("id",0).put("script",target.substring(11))); }
                     catch(Exception failure){engineFailed("javascript command");} return null;
                 }
+                url = target;
+                title = "";
                 if (engineLoad(target,null,null,args.length>1&&args[1] instanceof Map?(Map<String,String>)args[1]:null)) return null;
                 log("load_url|url=" + target + "|renderer=none");
                 startLoad(target, "loadUrl");
