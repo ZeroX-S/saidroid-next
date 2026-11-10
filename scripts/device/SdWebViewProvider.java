@@ -13,6 +13,7 @@ import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputMethodManager;
 import android.text.InputType;
 import org.json.JSONObject;
+import org.json.JSONArray;
 import android.view.View;
 import android.webkit.*;
 import android.webkit.WebViewProvider.ViewDelegate;
@@ -279,6 +280,20 @@ public final class SdWebViewProvider {
 
     // -------------------------------------------------------------- one view
 
+    /** Immutable copies of the renderer's actual back/forward entries. */
+    private static final class HistoryItem extends WebHistoryItem {
+        final int id;final String url,original,title;
+        HistoryItem(JSONObject value){id=value.optInt("id");url=value.optString("url");original=value.optString("original");title=value.optString("title");}
+        public int getId(){return id;}public String getUrl(){return url;}public String getOriginalUrl(){return original;}public String getTitle(){return title;}public Bitmap getFavicon(){return null;}
+        protected HistoryItem clone(){return this;}
+    }
+    private static final class HistoryList extends WebBackForwardList {
+        final HistoryItem[] items;final int index;
+        HistoryList(HistoryItem[] values,int current){items=values.clone();index=current;}
+        public WebHistoryItem getCurrentItem(){return getItemAtIndex(index);}public int getCurrentIndex(){return index;}public int getSize(){return items.length;}
+        public WebHistoryItem getItemAtIndex(int which){return which>=0&&which<items.length?items[which]:null;}
+        protected HistoryList clone(){return new HistoryList(items,index);}
+    }
     /** Per-WebView state: everything the old provider threw away between calls. */
     private static final class SdWebView {
         final WebView view;
@@ -297,6 +312,7 @@ public final class SdWebViewProvider {
         Bitmap webFrame;
         int progress, contentHeight, scrollY;
         boolean canBack, canForward, paused;
+        HistoryList history=new HistoryList(new HistoryItem[0],-1);
         boolean windowVisible=true;
         int scriptSequence;
         final Map<Integer, ValueCallback<String>> scripts = new HashMap<Integer, ValueCallback<String>>();
@@ -367,7 +383,11 @@ public final class SdWebViewProvider {
                     else if (kind.equals("progress")) {
                         progress = event.optInt("value"); if (chrome != null) chrome.onProgressChanged(view,progress);
                     } else if (kind.equals("history")) {
-                        canBack = event.optBoolean("back"); canForward = event.optBoolean("forward");
+                        JSONArray entries=event.optJSONArray("items");int index=event.optInt("index",-1);
+                        if(entries==null||entries.length()>10000||(entries.length()==0?index!=-1:index<0||index>=entries.length())){engineFailed("Invalid WebKit history snapshot");return;}
+                        HistoryItem[] items=new HistoryItem[entries.length()];for(int i=0;i<items.length;i++)items[i]=new HistoryItem(entries.optJSONObject(i));
+                        history=new HistoryList(items,index);canBack=index>0;canForward=index>=0&&index+1<items.length;
+                        log("history_snapshot|size="+items.length+"|index="+index);
                     } else if (kind.equals("scroll")) {
                         scrollY = event.optInt("y");contentHeight = event.optInt("height");
                     } else if (kind.equals("eval")) {
@@ -376,13 +396,13 @@ public final class SdWebViewProvider {
                     } else if (kind.equals("load")) {
                         int status=event.optInt("status");
                         if (status == 0) { phase=PHASE_LOADING; if (client != null) client.onPageStarted(view,event.optString("url",url),null); }
-                        else if (status == 2) { phase=PHASE_READY;progress=100; if (client != null) client.onPageFinished(view,event.optString("url",url));
+                        else if (status == 2 && phase != PHASE_ERROR_NO_RENDERER) { phase=PHASE_READY;progress=100; if (client != null) client.onPageFinished(view,event.optString("url",url));
                             if (System.getenv("SAILDROID_WEBVIEW_DIAGNOSTICS")!=null) {
                                 view.postDelayed(new Runnable(){public void run(){try{command(new JSONObject().put("op","stats"));}catch(Exception ignored){}}},3000);
                                 view.postDelayed(new Runnable(){public void run(){try{command(new JSONObject().put("op","stats"));}catch(Exception ignored){}}},6000);
                             }
                         }
-                        else if (status == 3) engineFailed(event.optString("error","page load failed"));
+                        else if (status == 3) failLoad(event.optString("url",url),WebViewClient.ERROR_UNKNOWN,event.optString("error","page load failed"));
                     } else if (kind.equals("error")) engineFailed(event.optString("message","engine error"));
                     log("engine_event|" + eventAudit(event));
                 }
@@ -661,7 +681,7 @@ public final class SdWebViewProvider {
             long ms = loadStartedAt == 0 ? 0 : System.currentTimeMillis() - loadStartedAt;
             applyPhaseBackground(0xFF4A1D1D);
             log("state|phase=error_no_renderer|url=" + target + "|ms=" + ms
-                    + "|code=" + errorCode + "|renderer=none");
+                    + "|code=" + errorCode + "|renderer=" + (engine == null ? "none" : "qt-wpe"));
             if (client != null) {
                 // Both overloads exist in API29. The base WebViewClient forwards the
                 // API23 one to the legacy one, so blindly calling both would deliver
@@ -695,7 +715,7 @@ public final class SdWebViewProvider {
                         + "|client=" + client.getClass().getName() + "|url=" + target);
             }
             log("load_failed|url=" + target + "|code=" + errorCode
-                    + "|reason=renderer_unavailable|delivered_onPageFinished=false");
+                    + "|reason=" + (engine == null ? "renderer_unavailable" : "page_load_failed") + "|delivered_onPageFinished=false");
             if (view != null) view.postInvalidateOnAnimation();
         }
 
@@ -829,6 +849,7 @@ public final class SdWebViewProvider {
             if (name.equals("reload") || name.equals("goBack") || name.equals("goForward")
                     || name.equals("goBackOrForward") || name.equals("stopLoading")) {
                 if(engine!=null)try {
+                    if(name.equals("goBackOrForward")){int steps=((Integer)args[0]).intValue();long target=(long)history.index+steps;if(history.index>=0&&target>=0&&target<history.items.length)command(new JSONObject().put("op","history_go").put("steps",steps));return null;}
                     String op=name.equals("reload")?"reload":name.equals("goBack")?"back":name.equals("goForward")?"forward":name.equals("stopLoading")?"stop":"unsupported";
                     command(new JSONObject().put("op",op));return null;
                 }catch(Exception failure){engineFailed("navigation");}
@@ -836,10 +857,8 @@ public final class SdWebViewProvider {
             }
             if(name.equals("canGoBack"))return Boolean.valueOf(canBack);
             if(name.equals("canGoForward"))return Boolean.valueOf(canForward);
-            if (name.equals("canGoBack") || name.equals("canGoForward")
-                    || name.equals("canGoBackOrForward")) {
-                return Boolean.FALSE;
-            }
+            if(name.equals("canGoBackOrForward")){long index=(long)history.index+((Integer)args[0]).intValue();return Boolean.valueOf(history.index>=0&&index>=0&&index<history.items.length);}
+            if(name.equals("copyBackForwardList")){log("history_copied|size="+history.getSize()+"|index="+history.getCurrentIndex());return history.clone();}
             if (name.equals("getUrl") || name.equals("getOriginalUrl")) return url;
             if (name.equals("getTitle")) return title;
             if (name.equals("getProgress")) return Integer.valueOf(progress);
@@ -902,7 +921,7 @@ public final class SdWebViewProvider {
                     || name.equals("zoomBy") || name.equals("invokeZoomPicker") || name.equals("flingScroll")) {
                 return null;
             }
-            if (name.equals("copyBackForwardList") || name.equals("getHitTestResult")
+            if (name.equals("getHitTestResult")
                     || name.equals("capturePicture") || name.equals("createPrintDocumentAdapter")
                     || name.equals("saveWebArchive") || name.equals("findAll") || name.equals("findNext")
                     || name.equals("getHttpAuthUsernamePassword") || name.equals("getZoomControls")
@@ -980,7 +999,10 @@ public final class SdWebViewProvider {
                                 if (dispatchSeq <= 3) log("diag|predispatch|seq=" + dispatchSeq);
                                 return Boolean.FALSE;
                             }
-                            if (n.equals("setLayoutParams")) return null;
+                            if (n.equals("setLayoutParams")) {
+                                access.super_setLayoutParams((android.view.ViewGroup.LayoutParams) args[0]);
+                                return null;
+                            }
                             if (n.equals("shouldDelayChildPressedState")) return Boolean.FALSE;
                             if (n.equals("getAccessibilityNodeProvider")) return null;
                             if (n.equals("onCreateInputConnection")) {
@@ -990,9 +1012,6 @@ public final class SdWebViewProvider {
                             if (n.equals("onCheckIsTextEditor")) return Boolean.valueOf(editorActive);
                             if (n.equals("onTouchEvent") && engine!=null) {
                                 MotionEvent event=(MotionEvent)args[0];
-                                if(view.getWidth()<1||view.getHeight()<1)return Boolean.FALSE;
-                                // The host consumes resize and touch packets in order. Send View
-                                // extents so it maps input to its current viewport, not a stale frame.
                                 try {command(SdWebEngine.touchCommand(event.getActionMasked(),event.getX(),event.getY(),event.getEventTime(),view.getWidth(),view.getHeight()));return Boolean.TRUE;}
                                 catch(Exception failure){engineFailed("touch");return Boolean.FALSE;}
                             }

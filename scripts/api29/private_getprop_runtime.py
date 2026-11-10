@@ -8,6 +8,8 @@ def validate_getprop(directory,repo):
     assert m['schema']=='saildroid-private-getprop-v2'and m['backend_copied_unchanged']is True
     assert m['backend_build_from_reference_sources_claimed']is False and m['architecture']=='AArch64'
     assert sha(repo/'native/commands/private-getprop.cpp')==m['source_sha256']
+    if 'host_product_source_sha256' in m:
+        assert sha(repo/'native/compat/api29-hardware-properties.c')==m['host_product_source_sha256']
     for name,key in [('getprop','binary_sha256'),('libc_bio.so.0','property_backend_sha256'),('NOTICE','notice_sha256')]:
         p=directory/name;assert p.is_file()and not p.is_symlink()and sha(p)==m[key]
     for name in ['getprop','libc_bio.so.0']:

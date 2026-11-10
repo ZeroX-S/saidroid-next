@@ -118,3 +118,9 @@ setup payload 的 Java/D8/hidden-API 编码构建也包括在内。
 
 这些是安装事务和辅助构建验证，API28 fixture 不代表真实 API28 ART 已启动。
 本轮未安装手机包、切换手机活动运行时、重跑真机 UI 或完整 CTS。
+
+## PR3 整合
+
+源码构建按 `--api` 选择完整的框架接口族，详见
+[PR3-INTEGRATION.md](PR3-INTEGRATION.md)。API28 辅助包编译通过不代表
+API28 完整手机运行时已通过验收，也不能据此改写 API29 root 的版本属性。

@@ -1,4 +1,5 @@
 #include <jni.h>
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <linux/android/binder.h>

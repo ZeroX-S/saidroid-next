@@ -5,7 +5,7 @@ import android.os.*;
 /** Private-kernel Binder protocol to a real declared Android service process. */
 public final class SdServiceEndpoint extends Binder {
     public static final String DESCRIPTOR="org.saildroid.process.Services";
-    public static final int BIND=1,UNBIND=2,START=3,STOP=4,PEEK=5,TASKS=6,BROADCAST=7,START_ACTIVITY=8;
+    public static final int BIND=1,UNBIND=2,START=3,STOP=4,PEEK=5,TASKS=6,BROADCAST=7,START_ACTIVITY=8,MANIFEST_RECEIVER=9;
     private static SdServiceEndpoint instance;
     private SdServiceEndpoint(){attachInterface(null,DESCRIPTOR);}
     public static void publish()throws RemoteException{
@@ -15,7 +15,7 @@ public final class SdServiceEndpoint extends Binder {
     }
     @Override protected boolean onTransact(int code,Parcel data,Parcel reply,int flags)throws RemoteException{
         if(code==INTERFACE_TRANSACTION){reply.writeString(DESCRIPTOR);return true;}
-        if(code<BIND||code>START_ACTIVITY)return super.onTransact(code,data,reply,flags);
+        if(code<BIND||code>MANIFEST_RECEIVER)return super.onTransact(code,data,reply,flags);
         if(Binder.getCallingUid()!=android.os.Process.myUid())throw new SecurityException("Service process caller UID differs");
         data.enforceInterface(DESCRIPTOR);
         if(code==START_ACTIVITY){
@@ -24,6 +24,15 @@ public final class SdServiceEndpoint extends Binder {
             java.util.List<android.content.pm.ResolveInfo> choices=SdApkPackage.resolveActivities(intent,intent.getType(),0);
             if(choices.isEmpty()||!SdApkPackage.processName().equals(choices.get(0).activityInfo.processName))throw new SecurityException("Activity is not declared in this process");
             SdActivityHost.requestRemoteStart(intent,callback);reply.writeNoException();return true;
+        }
+        if(code==MANIFEST_RECEIVER){
+            String caller=data.readString();
+            if(!SdApkPackage.NAME.equals(caller))throw new SecurityException("Receiver caller package differs");
+            Intent intent=Intent.CREATOR.createFromParcel(data);int result=data.readInt();String resultData=data.readString();Bundle extras=data.readBundle();String[] permissions=data.createStringArray();int user=data.readInt();
+            try { SdManifestReceivers.deliverLocal(intent,result,resultData,extras,permissions,user); }
+            catch (RuntimeException failure) { throw failure; }
+            catch (Exception failure) { throw new IllegalStateException("Manifest receiver dispatch failed",failure); }
+            reply.writeNoException();return true;
         }
         if(code==BROADCAST){
             Intent intent=Intent.CREATOR.createFromParcel(data);String type=data.readString();int result=data.readInt();String resultData=data.readString();Bundle extras=data.readBundle();String[] permissions=data.createStringArray();int user=data.readInt();

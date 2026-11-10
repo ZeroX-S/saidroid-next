@@ -40,6 +40,7 @@ static const char xml[] = R"(<node><interface name='org.saildroid.HostManager1'>
  <method name='StartService'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='StartActivityProcess'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='StartProviderProcess'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
+ <method name='StartReceiverProcess'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='Activate'><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='ActivateApplication'><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='Close'><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
@@ -272,9 +273,9 @@ static void dispatch(GDBusConnection *, const gchar *sender, const gchar *,
       if (!valid_package(a) || std::string(a).rfind("org.saildroid.", 0) == 0)
         throw std::runtime_error("Invalid application");
       launch({"--package", a});
-    } else if (m == "StartService" || m == "StartActivityProcess" || m == "StartProviderProcess") {
+    } else if (m == "StartService" || m == "StartActivityProcess" || m == "StartProviderProcess" || m == "StartReceiverProcess") {
       g_variant_get(params, "(&s&s&s)", &a, &b, &c);
-      if (!valid_package(a) || !valid_package(b) ||
+      if (!valid_package(a) || !valid_component(b) ||
           !std::regex_match(c, std::regex("[A-Za-z0-9_.]+(:[A-Za-z0-9_.]+)?")))
         throw std::runtime_error("Invalid service identity");
       auto it = entries.find(a);
@@ -290,7 +291,7 @@ static void dispatch(GDBusConnection *, const gchar *sender, const gchar *,
       if (!caller)
         throw std::runtime_error(
             "Service caller differs from application family");
-      launch({"--package", a, m == "StartService" ? "--service" : m == "StartActivityProcess" ? "--activity-process" : "--provider-process", b, "--process", c, "--owner-launch",
+      launch({"--package", a, m == "StartService" ? "--service" : m == "StartActivityProcess" ? "--activity-process" : m == "StartReceiverProcess" ? "--receiver-process" : "--provider-process", b, "--process", c, "--owner-launch",
               it->second.record.at("launch_id"), "--component",
               it->second.record.at("component")});
     } else {

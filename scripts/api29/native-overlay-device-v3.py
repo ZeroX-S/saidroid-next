@@ -55,7 +55,12 @@ else:
  # File capabilities are inode metadata; never set them on a predecessor hardlink.
  if bootstrap.stat().st_nlink>1:
   temporary=bootstrap.with_name('.saildroid-app-private-inode');shutil.copy2(bootstrap,temporary);os.replace(temporary,bootstrap)
- subprocess.run(['setcap','cap_sys_resource=ep',str(bootstrap)],check=True)
+ policy=json.loads((release/'runtime.json').read_text()).get('native_bootstrap')
+ capability='cap_sys_resource=ep'
+ if policy is not None:
+  assert policy in [dict(schema='saildroid-native-bootstrap-v1',capabilities=value)for value in ['cap_sys_resource=ep','cap_dac_override,cap_sys_resource=ep']]
+  capability=policy['capabilities']
+ subprocess.run(['setcap',capability,str(bootstrap)],check=True)
 verify(release,meta['install_manifest'])
 assert {str(p.relative_to(release))for p in release.rglob('*')if p.is_file()and not p.is_symlink()}==set(meta['install_manifest']['files'])|{'install-manifest.json'}
 assert {str(p.relative_to(release)):os.readlink(p)for p in release.rglob('*')if p.is_symlink()}==meta['install_manifest']['symlinks']

@@ -86,7 +86,6 @@ public final class SdWindowSession implements InvocationHandler {
         for(Object argument:args)if(argument instanceof Rect){((Rect)argument).set(0,0,SdDisplayShim.WIDTH,SdDisplayShim.HEIGHT);break;}
         for(Object argument:args){
             if(argument instanceof android.view.DisplayCutout.ParcelableWrapper)((android.view.DisplayCutout.ParcelableWrapper)argument).set(android.view.DisplayCutout.NO_CUTOUT);
-            if(argument instanceof android.view.InsetsState)((android.view.InsetsState)argument).set(imeState());
         }
         if(input){
             InputChannel[] pair=InputChannel.openInputChannelPair("SailDroid:"+w.attributes.getTitle());
@@ -134,6 +133,15 @@ public final class SdWindowSession implements InvocationHandler {
     }
     private void updateLayers(){int z=0;for(Window w:orderedWindows())SdSurfaceStore.z(w.surface,z++);}
     private Window top(){Window result=null;for(Window w:orderedWindows())if(w.visibility==View.VISIBLE&&(w.attributes.flags&WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)==0)result=w;return result;}
+    private Window touchTarget(float x,float y){
+        ArrayList<Window> ordered=orderedWindows();
+        for(int index=ordered.size()-1;index>=0;index--){
+            Window w=ordered.get(index);
+            if(w.sender!=null&&SdWindowTouchTargets.accepts(w.visibility,w.attributes.flags,
+                    w.frame.left,w.frame.top,w.frame.right,w.frame.bottom,x,y))return w;
+        }
+        return null;
+    }
     private void updateFocus()throws android.os.RemoteException{
         Window selected=top();
         for(Window w:windows.values()){
@@ -154,7 +162,6 @@ public final class SdWindowSession implements InvocationHandler {
         ((android.view.DisplayCutout.ParcelableWrapper)a[15]).set(android.view.DisplayCutout.NO_CUTOUT);
         android.content.res.Configuration config=android.app.ActivityThread.currentApplication().getResources().getConfiguration();
         ((android.util.MergedConfiguration)a[16]).setConfiguration(config,new Configuration());
-        ((android.view.InsetsState)a[18]).set(imeState());
         // DecorView draws its shadow padding inside the producer buffer. The
         // window frame and input coordinates exclude these surface insets.
         Rect bufferFrame=new Rect(w.frame);
@@ -162,7 +169,7 @@ public final class SdWindowSession implements InvocationHandler {
         bufferFrame.right+=w.attributes.surfaceInsets.right;bufferFrame.bottom+=w.attributes.surfaceInsets.bottom;
         SdSurfaceStore.layout(w.surface,bufferFrame,w.visibility==View.VISIBLE);
         SdSurfaceStore.dim(w.surface,(w.attributes.flags&WindowManager.LayoutParams.FLAG_DIM_BEHIND)!=0?w.attributes.dimAmount:0);
-        SdSurfaceStore.attachControl((android.view.SurfaceControl)a[17],w.surface,bufferFrame.width(),bufferFrame.height());
+        SdSurfaceStore.attach((Surface)a[17],w.surface);
         // Activity windows are commonly added GONE and become VISIBLE only
         // during relayout. Deliver focus after that visibility transition.
         updateFocus();
@@ -189,9 +196,14 @@ public final class SdWindowSession implements InvocationHandler {
         if(n.equals("getWindowId")){Window w=windows.get((IBinder)a[0]);if(w==null)throw new IllegalArgumentException("Unknown window token");return w.id;}
         if(n.equals("outOfMemory")){window(a[0]);return false;}
         if(n.equals("performHapticFeedback")){
-            // API29 IWindowSession takes (int effectId, boolean always), with
-            // no IWindow parameter. The host exposes no vibrator backend.
-            int effectId=(Integer)a[0];boolean always=(Boolean)a[1];
+            // API28 also supplies the requesting IWindow before the effect.
+            int effectIndex = 0;
+            if (a.length == 3) {
+                window(a[0]);
+                effectIndex = 1;
+            }
+            int effectId = (Integer)a[effectIndex];
+            boolean always = (Boolean)a[effectIndex + 1];
             System.err.println("SDWINDOW_SESSION=haptic_feedback|effect="+effectId+"|always="+always+"|supported=false");
             return false;
         }
@@ -199,13 +211,20 @@ public final class SdWindowSession implements InvocationHandler {
         if(n.equals("onRectangleOnScreenRequested")){if(!windows.containsKey((IBinder)a[0]))throw new IllegalArgumentException("Unknown window token");return null; /* Entire Android display is inside this one host window. */}
         throw SdRuntimeDiagnostics.unsupported("Local WindowSession",m);
     }
-    private android.view.InsetsState imeState(){
-        android.view.InsetsState state=new android.view.InsetsState();state.setDisplayFrame(new Rect(0,0,SdDisplayShim.WIDTH,SdDisplayShim.HEIGHT));
-        android.view.InsetsSource ime=state.getSource(android.view.InsetsState.TYPE_IME);ime.setFrame(new Rect(0,SdDisplayShim.HEIGHT-keyboardHeight,SdDisplayShim.WIDTH,SdDisplayShim.HEIGHT));ime.setVisible(keyboardHeight>0);return state;
-    }
-    public static void imeHeight(int height)throws android.os.RemoteException{
-        if(instance.keyboardHeight==height)return;instance.keyboardHeight=height;
-        for(Window w:instance.windows.values())w.client.insetsChanged(instance.imeState());
+    public static void imeHeight(int height) throws android.os.RemoteException {
+        if (instance.keyboardHeight == height) return;
+        instance.keyboardHeight = height;
+        Configuration configuration = SdActivityHost.displayConfiguration();
+        android.util.MergedConfiguration merged = new android.util.MergedConfiguration(configuration, new Configuration());
+        for (Window window : instance.windows.values()) {
+            Rect content = new Rect();
+            if ((window.attributes.softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST)
+                    == WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE) content.bottom = height;
+            Rect visible = new Rect(0, 0, 0, height);
+            window.client.resized(new Rect(window.frame), new Rect(), new Rect(), content, visible,
+                new Rect(), false, merged, new Rect(window.frame), false, false,
+                SdDisplayShim.DISPLAY_ID, new android.view.DisplayCutout.ParcelableWrapper());
+        }
     }
     public static void visibility(int value){
         boolean visible=value!=0&&value!=3;
@@ -231,9 +250,9 @@ public final class SdWindowSession implements InvocationHandler {
         if(diagInput)System.err.println("SDINPUT=deliver|action="+action+"|id="+id+"|x="+x+"|y="+y+"|windows="+windows.size()+"|touches="+touches.size());
         /* 第一次按下时把目标窗口的坐标系和整棵 View 树打出来：坐标到底是"送错了地方"
            还是"送对了但没人接"，只能看真实 bounds 才能判定，不猜。 */
-        if(diagInput&&action==MotionEvent.ACTION_DOWN&&!diagDumped){diagDumped=true;Window target=top();if(target!=null)System.err.println("SDINPUT=window|frame="+target.frame+"|layout="+target.attributes.width+"x"+target.attributes.height+"|vis="+target.visibility+"|title="+target.attributes.getTitle());try{SdViewDump.dump();}catch(Throwable ignored){}}
+        if(diagInput&&action==MotionEvent.ACTION_DOWN&&!diagDumped){diagDumped=true;Window target=touchTarget(x,y);if(target!=null)System.err.println("SDINPUT=window|frame="+target.frame+"|layout="+target.attributes.width+"x"+target.attributes.height+"|vis="+target.visibility+"|title="+target.attributes.getTitle());try{SdViewDump.dump();}catch(Throwable ignored){}}
         if(action==MotionEvent.ACTION_DOWN){
-            if(touches.isEmpty()){gesture=top();if(gesture==null||gesture.sender==null){if(diagInput)System.err.println("SDINPUT=drop_no_window|gestureNull="+(gesture==null)+"|senderNull="+(gesture!=null&&gesture.sender==null)+"|windows="+windows.size());return;}downTime=time;}
+            if(touches.isEmpty()){gesture=touchTarget(x,y);if(gesture==null||gesture.sender==null){if(diagInput)System.err.println("SDINPUT=drop_no_window|gestureNull="+(gesture==null)+"|senderNull="+(gesture!=null&&gesture.sender==null)+"|windows="+windows.size());return;}downTime=time;if(traceInput||diagInput)System.err.println("SDINPUT=target|title="+gesture.attributes.getTitle()+"|frame="+gesture.frame+"|focusable="+((gesture.attributes.flags&WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)==0));}
             if(touches.containsKey(id))return;
             int pointerId=0;boolean used;
             do{used=false;for(Touch point:touches.values())if(point.pointerId==pointerId){used=true;pointerId++;break;}}while(used);

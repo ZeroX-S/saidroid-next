@@ -25,6 +25,9 @@ class BinderSetupTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix='saildroid-binder-fixture-')
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        self.root.chmod(0o755)
+        (self.root/'dev').mkdir(mode=0o755)
+        (self.root/'dev').chmod(0o755)
         self.account = types.SimpleNamespace(pw_uid=65534, pw_gid=65534)
         self.module.RUNTIME = self.root / 'run/saildroid-binder'
         self.module.RUNTIME.parent.mkdir()
@@ -40,6 +43,12 @@ class BinderSetupTests(unittest.TestCase):
         self.protocol = 8
         self.additions = 0
         original_directory = self.module.root_directory
+        original_read_text = Path.read_text
+
+        def read_text(path, *args, **kwargs):
+            if path == Path('/proc/filesystems'):
+                return 'nodev\tbinder\n'
+            return original_read_text(path, *args, **kwargs)
 
         def root_directory(path, mode):
             if path == Path('/home/art'):
@@ -52,6 +61,7 @@ class BinderSetupTests(unittest.TestCase):
             patch.object(self.module.pwd, 'getpwnam', return_value=self.account),
             patch.object(self.module.subprocess, 'run', self.run_command),
             patch.object(self.module.fcntl, 'ioctl', self.ioctl),
+            patch.object(Path, 'read_text', read_text),
             patch.object(sys, 'argv', ['saildroid-binder-setup']),
         )
         for replacement in patches:
@@ -210,6 +220,80 @@ class BinderSetupTests(unittest.TestCase):
         self.assertEqual(self.module.TARGET.stat().st_ctime_ns, before.st_ctime_ns)
         self.assertEqual(self.module.METADATA.read_bytes(), metadata)
         self.assertFalse(self.mounts)
+
+    def static_fixture(self, name='anbox-binder'):
+        self.module.RUNTIME.mkdir(mode=0o700)
+        self.module.DIRECTORY.mkdir(parents=True)
+        source = self.root / 'dev' / name
+        source.parent.mkdir(exist_ok=True)
+        self.device(source)
+        registration = self.root / 'registration'
+        registration.write_text('1:3\n')
+        processes = self.root / 'proc'
+        processes.mkdir()
+        boot_id = self.root / 'boot_id'
+        boot_id.write_text('fixture-boot\n')
+        paths = {'/dev/' + name: source,
+                 '/sys/class/misc/' + name + '/dev': registration,
+                 '/proc': processes, '/proc/sys/kernel/random/boot_id': boot_id}
+        replacement = patch.object(self.module, 'Path', lambda name: paths.get(str(name), Path(name)))
+        replacement.start()
+        self.addCleanup(replacement.stop)
+        return source, processes
+
+    def test_static_device_and_repeated_execution(self):
+        source, _ = self.static_fixture()
+        before = source.stat()
+        self.module.prepare_static_binder(self.account)
+        target = self.module.TARGET.stat()
+        self.module.prepare_static_binder(self.account)
+        self.assertEqual(target.st_ino, self.module.TARGET.stat().st_ino)
+        self.assertEqual(self.module.TARGET.stat().st_uid, self.account.pw_uid)
+        self.assertEqual(source.stat().st_mode, before.st_mode)
+        self.assertEqual(source.stat().st_uid, 0)
+        self.assertEqual(json.loads(self.module.METADATA.read_text())['backend'], 'static-binder')
+
+    def test_static_ownership_failure_is_retryable(self):
+        self.static_fixture()
+        with patch.object(self.module.os, 'chown', side_effect=OSError('fixture failure')):
+            with self.assertRaisesRegex(OSError, 'fixture failure'):
+                self.module.prepare_static_binder(self.account)
+        self.assertFalse(self.module.TARGET.exists())
+        self.assertEqual(list(self.module.DIRECTORY.iterdir()), [])
+        self.module.prepare_static_binder(self.account)
+        self.assertTrue(self.module.TARGET.exists())
+
+    def test_puddlejumper_device_and_repeated_execution(self):
+        source, _ = self.static_fixture('puddlejumper')
+        before = source.stat()
+        self.module.prepare_static_binder(self.account)
+        metadata = json.loads(self.module.METADATA.read_text())
+        self.assertEqual(metadata['source'], str(source))
+        target = self.module.TARGET.stat()
+        self.module.prepare_static_binder(self.account)
+        self.assertEqual(target.st_ino, self.module.TARGET.stat().st_ino)
+        self.assertEqual(source.stat().st_mode, before.st_mode)
+        self.assertEqual(source.stat().st_uid, 0)
+
+    def test_puddlejumper_external_consumer_rejected(self):
+        source, processes = self.static_fixture('puddlejumper')
+        process = processes / '123'
+        (process / 'fd').mkdir(parents=True)
+        (process / 'fd/3').symlink_to(source)
+        (process / 'exe').symlink_to('/usr/bin/other-consumer')
+        with self.assertRaisesRegex(RuntimeError, 'already in use'):
+            self.module.prepare_static_binder(self.account)
+        self.assertFalse(self.module.TARGET.exists())
+
+    def test_static_external_consumer_rejected(self):
+        source, processes = self.static_fixture()
+        process = processes / '123'
+        (process / 'fd').mkdir(parents=True)
+        (process / 'fd/3').symlink_to(source)
+        (process / 'exe').symlink_to('/usr/bin/other-consumer')
+        with self.assertRaisesRegex(RuntimeError, 'already in use'):
+            self.module.prepare_static_binder(self.account)
+        self.assertFalse(self.module.TARGET.exists())
 
 
 if __name__ == '__main__':

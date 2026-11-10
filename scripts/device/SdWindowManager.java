@@ -21,6 +21,10 @@ public final class SdWindowManager implements InvocationHandler {
         if(name.equals("hashCode"))return System.identityHashCode(p);
         if(name.equals("equals"))return p==a[0];
         if(name.equals("openSession")){
+            if(android.os.Build.VERSION.SDK_INT<29){
+                SdInputMethods.registerClient((com.android.internal.view.IInputMethodClient)a[1],
+                    (com.android.internal.view.IInputContext)a[2]);
+            }
             ((android.view.IWindowSessionCallback)a[0]).onAnimatorScaleChanged(1.0f);
             return SdWindowSession.service();
         }

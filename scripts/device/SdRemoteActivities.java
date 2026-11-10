@@ -70,7 +70,14 @@ public final class SdRemoteActivities {
         }}});
     }
     static void ready(IBinder callback)throws RemoteException{
-        Parcel data=Parcel.obtain();try{data.writeInterfaceToken(CALLBACK);if(!callback.transact(READY,data,null,IBinder.FLAG_ONEWAY))throw new RemoteException("Activity caller ended");}finally{data.recycle();}
+        Parcel data=Parcel.obtain();try{
+            data.writeInterfaceToken(CALLBACK);
+            if(!callback.transact(READY,data,null,IBinder.FLAG_ONEWAY))throw new RemoteException("Activity caller ended");
+        }catch(DeadObjectException ended){
+            // A caller can launch its successor and finish its own process
+            // before the successor's asynchronous launch verification runs.
+            System.err.println("SDREMOTE_ACTIVITY=ready_caller_ended|activity_retained=true");
+        }finally{data.recycle();}
     }
     static void finish(IBinder callback,int code,Intent value,boolean foreground)throws RemoteException{
         Parcel data=Parcel.obtain();try{

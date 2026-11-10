@@ -15,6 +15,14 @@ libwpe 1.17.0 development headers under `include/wpe-input.h`; its full notice
 is retained and packaged. No Qt plugin or WebKit implementation source is copied. The installed plugin/engine are external
 dependencies, currently tested with `atlantic-browser-1.6.0-748.1.aio.aarch64`.
 
+The r323e deployment uses the modular aarch64 engine packages from build 768.1,
+with WPE WebKit 2.54.2 and the same inspected Atlantic source revision above.
+The runtime RPM pins those package identities and carries the required
+compatibility library closure, source records, and notices. The engine helper
+executables use `/opt/wpe-sfos`; the compatibility library directory belongs
+to the SailDroid release. See `scripts/packaging/README.md` for the package list
+and installation checks.
+
 The exported `WPEQtView::webView() const` accessor is used only to obtain an opaque
 WebKit object for public WebKit settings APIs. No private C++ object layout is
 recreated. If this accessor or the public settings symbols are unavailable the

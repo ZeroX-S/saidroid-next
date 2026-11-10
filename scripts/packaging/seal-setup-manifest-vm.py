@@ -5,7 +5,7 @@ The manifest excludes only itself; the RPM subsequently hashes/owns the manifest
 Never run this against an installed release or overwrite an existing seal.
 """
 from pathlib import Path
-import argparse,hashlib,importlib.util,json,os,platform,re,stat
+import argparse,hashlib,importlib.util,json,os,platform,re,stat,subprocess,sys
 p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--release-id',required=True);a=p.parse_args()
 assert platform.system()=='Linux' and 'sailfishos' not in Path('/etc/os-release').read_text().lower()
 root=a.root.resolve();assert not str(root).startswith(('/opt/saildroid/releases/','/home/art/releases/'));assert re.fullmatch('[a-z0-9][a-z0-9.-]{0,100}',a.release_id)
@@ -24,5 +24,8 @@ for p in sorted(root.rglob('*')):
   mode=stat.S_IMODE(p.stat().st_mode);assert p.is_file()and not(mode&0o7022);files[relative]=dict(sha256=sha(p),size=p.stat().st_size,mode=mode)
 spec=importlib.util.spec_from_file_location('setup_api',Path(__file__).with_name('saildroid-setup.py'));setup=importlib.util.module_from_spec(spec);spec.loader.exec_module(setup)
 api=setup.runtime_api(json.loads((root/'runtime.json').read_text()),{},(root/'build.prop').read_text() if (root/'build.prop').is_file() else None)
+if api == 28:
+    subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / 'api28/prepare-core-linker.py'),
+                    '--root', str(root), '--release-id', a.release_id, '--check'], check=True)
 manifest=dict(schema='saildroid-activation-manifest-v1',release_id=a.release_id,api=api,files=files,symlinks=links,directories=directories)
 target.write_text(json.dumps(manifest,indent=2)+'\n');target.chmod(0o644);print(json.dumps(dict(path=str(target),sha256=sha(target),files=len(files),symlinks=len(links))))

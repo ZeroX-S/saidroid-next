@@ -48,7 +48,7 @@ struct Player {
  int stream=3,session=0;float left=1,right=1;bool async_prepare=false;bool configured=false;std::atomic<bool>pending_seek{false},completed{false},prepare_queued{false},error_sent{false};
  Player(long n):id(n){}
  void event(int what,int a=0,int b=0){
-  if(quit)return;
+  if(quit||!weak)return;
   Env env;if(!env.e)return;
   env.e->CallStaticVoidMethod(mp_class,post_event,weak,what,a,b,nullptr);
   if(env.e->ExceptionCheck()){env.e->ExceptionDescribe();env.e->ExceptionClear();}
@@ -119,15 +119,15 @@ static GstFlowReturn render(GstAppSink*sink,void*data,bool preroll){
  gst_video_frame_unmap(&frame);gst_sample_unref(sample);return GST_FLOW_OK;
 }
 static GstFlowReturn sample_cb(GstAppSink*s,gpointer p){return render(s,p,false);}static GstFlowReturn preroll_cb(GstAppSink*s,gpointer p){return render(s,p,true);}
-static bool configure(JNIEnv*e,std::shared_ptr<Player>p,const char*uri){
+static bool configure(JNIEnv*e,std::shared_ptr<Player>p,const char*uri,bool retrieve=false){
  if(p->configured){fail(e,"java/lang/IllegalStateException","Data source already set");return false;}
- p->pipe=gst_element_factory_make("playbin",nullptr);p->sink=gst_element_factory_make("appsink",nullptr);p->audio=gst_element_factory_make("pulsesink",nullptr);GstElement*audio=p->audio;
+ p->pipe=gst_element_factory_make("playbin",nullptr);p->sink=gst_element_factory_make("appsink",nullptr);p->audio=gst_element_factory_make(retrieve?"fakesink":"pulsesink",nullptr);GstElement*audio=p->audio;
  if(!p->pipe||!p->sink||!audio){fail(e,"java/io/IOException","GStreamer playbin/appsink/pulsesink unavailable");return false;}
  GstCaps*caps=gst_caps_new_simple("video/x-raw","format",G_TYPE_STRING,"RGBA",nullptr);gst_app_sink_set_caps(GST_APP_SINK(p->sink),caps);gst_caps_unref(caps);
- g_object_set(p->sink,"sync",TRUE,"max-buffers",2,"drop",TRUE,"enable-last-sample",FALSE,nullptr);GstAppSinkCallbacks cb{};cb.new_sample=sample_cb;cb.new_preroll=preroll_cb;gst_app_sink_set_callbacks(GST_APP_SINK(p->sink),&cb,p.get(),nullptr);
+ g_object_set(p->sink,"sync",!retrieve,"max-buffers",2,"drop",TRUE,"enable-last-sample",FALSE,nullptr);GstAppSinkCallbacks cb{};if(!retrieve){cb.new_sample=sample_cb;cb.new_preroll=preroll_cb;}gst_app_sink_set_callbacks(GST_APP_SINK(p->sink),&cb,p.get(),nullptr);
  g_object_set(p->pipe,"video-sink",p->sink,"audio-sink",audio,"uri",uri,"volume",(double)((p->left+p->right)/2),nullptr);
  g_signal_connect(p->pipe,"source-setup",G_CALLBACK(source_setup),p.get());p->bus=gst_element_get_bus(p->pipe);p->configured=true;p->worker=std::thread([raw=p.get()]{raw->bus_loop();});
- fprintf(stderr,"SDMEDIA=data_source|id=%ld|kind=%s|length=%lld|backend=gstreamer|audio=pulseaudio\n",p->id,p->fd>=0?"bounded-fd":p->java_source?"android-media-data-source":"uri",(long long)p->length);return true;
+ fprintf(stderr,"SDMEDIA=data_source|id=%ld|kind=%s|length=%lld|backend=gstreamer|purpose=%s\n",p->id,p->fd>=0?"bounded-fd":p->java_source?"android-media-data-source":"uri",(long long)p->length,retrieve?"metadata":"playback");return true;
 }
 static void setup(JNIEnv*e,jobject self,jobject weak){long id=next_id++;auto p=std::make_shared<Player>(id);p->weak=e->NewGlobalRef(weak);{std::lock_guard<std::mutex>g(registry_lock);registry[id]=p;}e->SetLongField(self,context_field,id);fprintf(stderr,"SDMEDIA=setup|id=%ld|backend=gstreamer|android_media_server=unused\n",id);}
 static void release(JNIEnv*e,jobject self){long id=e->GetLongField(self,context_field);std::shared_ptr<Player>p;{std::lock_guard<std::mutex>g(registry_lock);auto it=registry.find(id);if(it!=registry.end()){p=it->second;registry.erase(it);}}e->SetLongField(self,context_field,0);if(p){p->shutdown();fprintf(stderr,"SDMEDIA=released|id=%ld|frames=%llu\n",id,(unsigned long long)p->frames.load());}}
@@ -177,6 +177,7 @@ static void next_player(JNIEnv*e,jobject,jobject next){if(next)unsupported(e,"Me
 static void aux(JNIEnv*e,jobject,jint effect){if(effect)unsupported(e,"Audio auxiliary effect");}
 static void aux_level(JNIEnv*e,jobject,jfloat level){if(level!=0)unsupported(e,"Audio auxiliary effect send");}
 #include "registration.inc"
+#include "retriever-host.inc"
 extern "C" JNIEXPORT void JNICALL Java_SdMediaPlayer_nativeInstall(JNIEnv*e,jclass){
  e->GetJavaVM(&vm);jclass local=e->FindClass("android/media/MediaPlayer");if(!local)return;mp_class=(jclass)e->NewGlobalRef(local);context_field=e->GetFieldID(mp_class,"mNativeContext","J");post_event=e->GetStaticMethodID(mp_class,"postEventFromNative","(Ljava/lang/Object;IIILjava/lang/Object;)V");
  void*linker=dlopen("libdl_bio.so.0",RTLD_NOW|RTLD_GLOBAL);auto open=linker?(void*(*)(const char*,int))dlsym(linker,"bionic_dlopen"):nullptr;auto symbol=linker?(void*(*)(void*,const char*))dlsym(linker,"bionic_dlsym"):nullptr;
@@ -190,9 +191,16 @@ extern "C" JNIEXPORT void JNICALL Java_SdMediaPlayer_nativeInstall(JNIEnv*e,jcla
   const char*decoders[]={"avdec_h264","avdec_hevc","avdec_mpeg4","avdec_aac",nullptr};for(int i=0;decoders[i];i++){GstPluginFeature*f=gst_registry_find_feature(gst_registry_get(),decoders[i],GST_TYPE_ELEMENT_FACTORY);if(f){gst_plugin_feature_set_rank(f,GST_RANK_PRIMARY+100);gst_object_unref(f);}}
  }
  if(e->RegisterNatives(mp_class,methods,sizeof(methods)/sizeof(methods[0]))<0)return;
- {jclass strategy=e->FindClass("android/media/audiopolicy/AudioProductStrategy");if(!strategy)return;
-  JNINativeMethod policy[]={ {(char*)"native_list_audio_product_strategies",(char*)"(Ljava/util/ArrayList;)I",(void*)list_product_strategies} };
-  if(e->RegisterNatives(strategy,policy,1)<0)return;
+ if(!install_retriever(e))return;
+ {jclass version=e->FindClass("android/os/Build$VERSION");if(!version)return;
+  jint sdk=e->GetStaticIntField(version,e->GetStaticFieldID(version,"SDK_INT","I"));
+  e->DeleteLocalRef(version);
+  if(sdk>=29){
+   jclass strategy=e->FindClass("android/media/audiopolicy/AudioProductStrategy");if(!strategy)return;
+   JNINativeMethod policy[]={ {(char*)"native_list_audio_product_strategies",(char*)"(Ljava/util/ArrayList;)I",(void*)list_product_strategies} };
+   int registered=e->RegisterNatives(strategy,policy,1);e->DeleteLocalRef(strategy);
+   if(registered<0)return;
+  }
  }
  fprintf(stderr,"SDMEDIA=installed|backend=gstreamer|native_methods=%zu|surface=android-bufferqueue|audio=pulseaudio\n",sizeof(methods)/sizeof(methods[0]));return;
 failed:if(!e->ExceptionCheck())fail(e,"java/lang/IllegalStateException","MediaPlayer host backend installation failed");

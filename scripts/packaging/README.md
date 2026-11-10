@@ -39,10 +39,244 @@ The RPM name includes the release ID and owns only
 `/opt/saildroid/releases/<release-id>` plus the two parent directories. It uses
 explicit host ABI requirements, no automatic Android/Bionic providers, no
 stripping, and a gzip payload compatible with the observed RPM 4.16 target.
-Only `libexec/saildroid-app` receives `cap_sys_resource=ep`; the host receives no
-capability. There are no scriptlets. The only permitted APKs are the component's
+The sealed `native_bootstrap` policy selects either `cap_sys_resource=ep` or
+`cap_dac_override,cap_sys_resource=ep` for `libexec/saildroid-app`. Older releases
+default to the former. The bootstrap drops all capabilities before entering
+the host. The sealed `rpm_activation` policy controls installation scriptlets.
+The only permitted APKs are the component's
 `share/manager.apk` and `system/framework/framework-res.apk`; user/test APKs,
 application data, desktop registration, and service units are rejected.
+
+## 2026-11-10 video inventory and OOM policy
+
+`SdMediaProvider` reads video width, height, duration and rotation through the
+existing `MediaMetadataRetriever`, caching the results with each file's size
+and modification time. Existing files are indexed when the updated application
+process starts. Unsupported media retains zero metadata. The provider continues
+to reconcile additions, changes and removals through the same transactional
+inventory.
+
+The r323i build overlays the two changed provider classes into the retained
+297-class runtime, preserves all 2664 existing hidden-API member flags and
+rebuilds all 42 matching boot-image outputs. Its small bootstrap is built after
+byte-identical reproduction of the r323h bootstrap. The complete extracted RPM
+inventory and its declared capabilities must pass verification before activation.
+The package records these inputs and recipes under
+`share/build/qq-video-metadata-20261110`.
+
+The device bootstrap regression covers an inherited -1000 adjustment, an
+already-zero child with `no_new_privs`, and a protected restricted child that
+must fail. Successful entries report UID 100000, adjustment zero, cleared
+effective/permitted/inheritable/ambient capabilities and `no_new_privs=1`.
+
+Run `scripts/packaging/test-setup-vm.py --output NEW_DIRECTORY` as root in a
+Linux build VM for activation and capability regressions. The video APK fixture
+source is `native/media/gstreamer-player/tests/VideoThumbnailActivity.java`.
+Build it with the pinned API28 SDK, a synthetic `clip.mp4` asset and explicit
+READ_EXTERNAL_STORAGE permission. Launch through the ordinary app entry point
+with valid device video fixtures. It checks OOM adjustment, seven thumbnail
+operations and MediaStore metadata against the retriever's actual values.
+
+The Xiaomi Pad 5/NABU device validation installed
+`saildroid-runtime-api28-r323i-dev-20261110-0.321.60-67.aarch64` and obtained
+`rpm -V` success plus setup status `ready`. The RPM SHA256 is
+`9c42d73435e0aff707b7819ef994fa0a53ed304ff44bfc906acc05f2c283d4ef`.
+The SDK build used `SailfishOS-latest-aarch64` through
+`tools/sailfish-wsl-build.sh` and retained its command, input manifests and
+payload recipes in the build records.
+
+All 68 activation/capability cases and the three device bootstrap cases passed.
+The ordinary APK fixture verified seven synthetic thumbnail operations and
+metadata for three valid 720x1280 videos. A second ordinary-entry run verified
+mini and 180x135 grid thumbnails for each real video with varied pixels. The
+application had OOM adjustment zero, cleared active capability sets and
+`no_new_privs=1`. The installation and device probes retained a single boot ID.
+QQ's video picker still requires a physical visual retest.
+
+## 2026-11-10 local document selection
+
+QQ's resource `0x7f121541` reports a missing `GET_CONTENT` or `OPEN_DOCUMENT`
+handler. `SdDocumentPicker` supplies the fallback intent handler in the
+requesting application's task. It browses the real SailDroid shared directory
+and the user's Downloads, Documents, Pictures, Videos and Music directories.
+Directory listing runs on a worker, with a 10000-entry limit per directory.
+MIME filters, cancellation, initial external-storage document URIs, repeated
+requests and selections of up to 256 files use the Activity result path.
+
+`SdDocumentsProvider` stores selected read handles in an app-owned SQLite
+database. Each handle resolves to a readable regular file in those shared
+folders. Queries return the actual name, size, MIME type and path. File opens
+validate the canonical path and use `O_NOFOLLOW`. `OPEN_DOCUMENT` handles
+support persisted read grants and access from the application's other
+declared processes. The first MIME lookup is handled through ActivityManager's
+provider MIME entry point.
+
+The native host and manager share component-name validation for Activity,
+Service and Provider startup, including nested classes with `$`. The native
+build records a byte-identical baseline and verifies the candidate's dynamic
+dependencies, runpath and exported interfaces.
+
+The workspace recipe is `artifacts/qq-file-path-20261110/prepare_package_k.py`.
+It builds the r323k payload from the verified r323i release, installs the
+308-class runtime and all 42 matching boot-image outputs, binds the final
+linker paths and seals the activation manifest. The runtime merger retains
+2666 existing member flags and encodes 89 new internal members. The RPM build
+uses `SailfishOS-latest-aarch64` through `tools/sailfish-wsl-build.sh`. Build
+commands, source hashes and image inputs are packaged under
+`share/build/document-picker-20261110`.
+
+The ordinary APK fixture is `scripts/device/tests/DocumentPickerActivity.java`.
+Its file operations and automated selections target its own temporary shared
+files. It exercises single and multiple results, openable metadata, document
+bytes, linked replacements, persisted reads in a declared secondary process,
+cancellation, removed files and a repeated request to the live picker.
+
+Device validation on Xiaomi Pad 5/NABU installed
+`saildroid-runtime-api28-r323k-dev-20261110-0.321.62-69.aarch64` and passed
+`rpm -V` plus setup status `ready`. The RPM SHA256 is
+`b7c0f65a25fd5b048b46d17c844cef3e383eb6c3d43da100624193d1ab1533fc`.
+Its extracted inventory contains 3623 files and 15 symlinks.
+
+The ordinary APK fixture passed single and multiple results, first MIME lookup,
+actual file bytes, linked replacement rejection, persisted reads from its
+nested secondary Activity, cancellation, removed files and repeated requests.
+The process ran with OOM adjustment zero, all four Linux capability sets zero
+and `no_new_privs=1`. Fixture files, app data, process state and diagnostic
+backups were cleaned after verifying their identities. Installation and tests
+used boot ID `4617bb3e-7fb9-4a85-8459-9c5a640a78bf`.
+
+The QQ acceptance step is to choose a file from its send-file page and confirm
+the selection returns to QQ.
+
+## 2026-11-10 document picker GPU rendering
+
+The r323k regression APK disabled application hardware acceleration. With
+acceleration enabled, the picker attempted software drawing into a GPU Surface
+and ViewRootImpl reported `Could not lock surface`. `SdDocumentPicker` now sets
+`ActivityInfo.FLAG_HARDWARE_ACCELERATED` when the selected window backend uses
+HWUI. The fixture checks its actual DecorView acceleration before selecting files.
+
+The same accelerated APK failed on r323k and passed on r323l. Both accelerated
+and software variants passed selection, cancellation, repeated requests and
+persisted cross-process reads. The accelerated run created picker EGL windows
+and completed GPU swaps with zero surface-lock errors.
+
+The installed RPM is
+`saildroid-runtime-api28-r323l-dev-20261110-0.321.63-70.aarch64`, with SHA256
+`1ed3cb17c3636e98ec50891a5466cc0cc31cd3d3d32c8dfd80b0c6510e247f09`.
+Its extracted inventory contains 3633 files and 15 symlinks. Runtime rebuild
+commands, source hashes and native boot-image inputs are packaged under
+`share/build/document-picker-rendering-20261110`. The runtime update preserves
+307 other classes and all 2755 existing member access flags.
+
+## 2026-11-09 API28 Java compatibility updates
+
+Partial runtime updates compile the changed Java sources with `javac --release 8`
+against the pinned API28 framework, then run D8 with `--min-api 28`.
+`scripts/api28/MergeRuntimeDex.java` accepts
+`BASELINE.dex OVERLAY.dex OUTPUT.dex --preserve-synthetic` to retain earlier
+synthetic accessors and constructor bridges referenced by retained classes.
+The merged JAR passes through `scripts/api28/encode-platform-dex.py`, followed
+by a comparison of every existing member and its hidden-API flags.
+
+Rebuild the matching boot images whenever the runtime JAR changes. Record the
+compiler identity, all boot JAR hashes, final logical locations, and emitted
+ART/OAT/VDEX hashes. Reseal the activation manifest after staging the new JAR,
+images, source records, and runtime metadata. Verify the complete extracted RPM
+inventory, scriptlets, capabilities, dependencies, and installed release.
+
+The network and toast repair records live in
+`share/build/network-miniapp-20261109` within the r322y RPM. The source includes
+`scripts/device/tests/check-connectivity-callbacks.py` and
+`scripts/device/tests/check-toast-queue.py` for callback and toast lifecycle
+regressions. Host network observations project the existing snapshot helper's
+DNS and routes and derive validation from the matching ConnMan service's
+`online` state. The default Android network continues to use the host resolver
+through network ID zero.
+
+The r322z API28 address parser correction is recorded in
+`share/build/network-miniapp-api28-20261109`. Compile the canonical
+`scripts/device/SdConnectivitySnapshot.java` together with `SdConnectivity`
+and `SdHostNetworkObservation`. It uses API28's
+`NetworkUtils.numericToInetAddress` for strict numeric address parsing. Verify
+the installed build through an ordinary APK using `ConnectivityManager`,
+`Network.getAllByName`, and the public `Toast` API, including attachment,
+timeout, and cancellation.
+
+## 2026-11-09 WPE runtime dependencies
+
+The r323e runtime records its engine inputs in
+`share/build/webview-runtime-20261109/runtime-manifest.json`. Install the
+runtime and these aarch64 engine packages in one RPM transaction.
+
+| Package | Version and release |
+| --- | --- |
+| libepoxy | 1.5.11-768.1 |
+| libwpe | 1.17.0-768.1 |
+| wpebackend-fdo | 1.17.0-768.1 |
+| wpewebkit2 | 2.54.2-768.1 |
+| wpewebkit2-qt5 | 2.54.2-768.1 |
+
+Verify the repository signature, each RPM signature, and the payload SHA-256
+from the signed primary metadata before staging. The engine repository is
+`https://specsierra.github.io/atlantic-engine/aarch64/`. Build 768.1 corresponds
+to Atlantic source revision `b36d176b1374aab8c6b4bde582d10bf6ff50819e`.
+
+WebKit uses its compiled `/opt/wpe-sfos` helper paths. SailDroid packages the
+required compatibility library closure under its own `lib/webview` directory,
+with source records and license notices. `sdwebview-host` expands
+`${SD_COMPONENT}` to its canonical release root when configuring the isolated
+process. The libsoup boundary resolves its SONAME through that configured
+library path. The runtime RPM pins all five engine dependencies. The
+release-owned `libegl-stubs.so` supplies EGL 1.5 entry points through the
+platform KHR functions. Configure both `LD_PRELOAD` and
+`ATLANTIC_LD_PRELOAD`, and propagate the release library path through
+`ATLANTIC_LD_LIBRARY_PATH` for the WebKit helper wrappers.
+
+After installation, verify both the engine RPM inventories and SailDroid's
+activation seal. Run an ordinary APK through the public Android WebView API
+to check HTML loading, JavaScript evaluation, an annotated Java interface,
+HTTPS loading, and emitted renderer frames. The provider forwards layout
+parameters through `WebView.PrivateAccess.super_setLayoutParams`, so Android
+parents can measure a WebView attached with `Activity.setContentView`. Package
+that provider change with boot images compiled from the same runtime JAR. The
+API28 JNI registration table initializes Android NIO helpers before graphics,
+which provides the buffer access methods used by Bitmap pixel transfers.
+Exercise heap, direct, and typed buffer copies in the ordinary APK probe. The
+API28 CLI bootstrap validates 97 framework registrations and carries its
+matching source hash in the CLI module manifest. The probe covers
+zero-offset Bitmap buffers. A heap ByteBuffer positioned at 4 currently
+triggers an ART array-pointer abort in `Bitmap.copyPixelsToBuffer` on this
+API28 runtime.
+
+### r323f Activity queue and page recovery
+
+The r323f runtime uses version `0.321.57-64`. Its repair inputs and device boot
+image recipe are recorded under
+`share/build/webview-runtime-20261109/recovery`. The build starts from the sealed
+r323e payload, overlays `SdActivityHost` and `SdWebViewProvider`, compiles the
+42 matching boot image files on the aarch64 device, and uses the established
+Sailfish SDK target `SailfishOS-latest-aarch64` for the RPM. The provenance
+includes `prepare_package_recovery.py` and the exact input hashes.
+
+Activity start requests retain the caller's package when they enter the queue.
+If the caller finishes before dispatch, the accepted launch continues with its
+saved referrer and detached result ownership. Pending starts also retain a
+process whose last Activity has just finished. Unknown caller tokens are
+validated when a new request is accepted.
+
+A WPE page load error reports the failing URL through `WebViewClient` and keeps
+the engine available for JavaScript and subsequent navigation. Engine process
+failures continue through the existing renderer cleanup path.
+`native/webview/qt-helper/RecoveryProbeActivity.java` exercises these paths
+through a normal API28 APK, including local file errors, HTTPS, Java interfaces,
+proxy Activity finish/start ordering, result delivery, and one-Activity tasks.
+
+The final r323g package uses version `0.321.58-65` and the same runtime JAR and
+boot images. It includes the corrected recovery probe, which loads a valid
+document after a page error before checking JavaScript and Java interfaces.
+Its packaging recipe is `prepare_package_recovery_final.py` in the recovery
+provenance directory.
 
 ## 2026-11-04 development example
 
@@ -168,6 +402,15 @@ enables `saildroid-binder.service` before the user session, with an independent
 root-owned copy at `/usr/local/sbin/saildroid-binder-setup`. Repeated execution
 preserves the device identity. Boot recreates the mount and refreshes device
 metadata. This common prerequisite remains available across runtime rollback.
+
+When binderfs is unavailable, the helper accepts a dedicated static
+`/dev/anbox-binder` or `/dev/puddlejumper` node. It preserves a previously
+registered source and otherwise selects anbox-binder first. Static provisioning
+checks the kernel misc-device identity, protocol version, root ownership,
+0600 permissions and existing consumers before creating the user-owned runtime
+node. Kernels with `binder,vndbinder,hwbinder,puddlejumper,vndpuddlejumper,hwpuddlejumper`
+can use puddlejumper for the private runtime Binder context. Binderfs remains
+the preferred backend when available.
 
 Close all SailDroid hosts, including its native session manager, before activation.
 The helper never kills them. It holds both a root setup lock and the existing
@@ -347,3 +590,25 @@ performance, and official CTS gates are recorded separately by the device test
 owner. Neither these VM checks nor earlier J performance results certify those
 L device gates. Earlier K artifacts and partial cache outputs are preserved;
 its paused cache driver was terminated without starting the remaining jobs.
+
+## 2026-11-09 API28 native display repair
+
+The r323h release is `saildroid-runtime-api28-r323h-dev-20261109-0.321.59-66.aarch64`.
+Its native display library is built with
+`native/window/build-native-display-vm.py`, using the extracted r323g payload
+and its recorded cross-build inputs. The builder verifies a byte-identical
+baseline and records the candidate's source hashes, commands, dependencies,
+and exports. The native display README contains the build and regression
+commands.
+
+The workspace packaging record is
+`artifacts/wechat-qr-login-20261109/prepare_package.py`. It clones the verified
+r323g payload, installs the window library and its provenance, updates the
+integration metadata, and runs `prepare-core-linker.py` with the final release
+ID. `seal-setup-manifest-vm.py` generates the activation inventory before the
+Sailfish WSL SDK wrapper builds the aarch64 RPM. `verify_package.py` extracts
+the RPM and compares all payload bytes, modes, directories, and symlinks.
+
+The installed payload includes the recipe, native source, and build record
+under `share/build/native-display-events-20261109`. The RPM owns the release
+directory and carries the setup helper's checked installation scriptlets.

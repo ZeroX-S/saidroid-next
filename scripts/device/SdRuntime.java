@@ -38,10 +38,13 @@ public final class SdRuntime {
         if(!SdBridge.installClassLoaderNamespaces())throw new IllegalStateException("Application native namespace backend unavailable");
         SdClassLoaderNamespaces.installNativePathListener();
         if(!SdBridge.installGraphicsEnvironment())throw new IllegalStateException("Graphics configuration backend unavailable");
+        SdMediaPlayer.installBackend();
         }
         if(Boolean.getBoolean("saidroid.vmExitDiagnostics")){SdBridge.installExitDiagnostics();SdRuntimeDiagnostics.captureUncaught();}
         if(android.graphics.Typeface.DEFAULT==null)throw new IllegalStateException("Android system font map unavailable");
-        if(android.os.Build.VERSION.SDK_INT!=29)throw new IllegalStateException("SailDroid requires its actual API 29 framework");
+        if(android.os.Build.VERSION.SDK_INT!=28 && android.os.Build.VERSION.SDK_INT!=29)throw new IllegalStateException("SailDroid requires its actual API 28 or API 29 framework");
+        System.err.println("SDRUNTIME=platform|sdk="+android.os.Build.VERSION.SDK_INT
+            +"|release="+android.os.Build.VERSION.RELEASE);
 
         // Public hardware fields share the immutable component property source.
         // Capture the framework values before any application code is loaded.
@@ -69,14 +72,14 @@ public final class SdRuntime {
             if((SdApkPackage.applicationInfo().flags&ApplicationInfo.FLAG_HARDWARE_ACCELERATED)==0)
                 SdWindowHost.appOptedOutOfHardware();
             if(SdWindowHost.hardware()){
-                android.graphics.HardwareRenderer.setIsolatedProcess(true);
+                android.view.ThreadedRenderer.setIsolatedProcess(true);
                 System.err.println("SDHWUI=enabled|pipeline=android-hwui-gles-wayland|cpu_readback=0");
             }else android.view.ThreadedRenderer.disable(true);
             SdStartup.phase("apk_metadata_ready");
             // Publish Android's actual process identity before the Wayland
             // surface maps, so Sailfish can merge its cold-start Cover too.
             android.os.Process.setArgV0(SdApkPackage.processName());
-            boolean serviceProcess=System.getProperty("saidroid.service")!=null||System.getProperty("saidroid.activity")!=null||System.getProperty("saidroid.provider")!=null;
+            boolean serviceProcess=System.getProperty("saidroid.service")!=null||System.getProperty("saidroid.activity")!=null||System.getProperty("saidroid.provider")!=null||System.getProperty("saidroid.receiver")!=null;
             if(SdKernelServices.enabled())SdBridge.startBinderPool();
             if(!serviceProcess&&!SdInstrumentation.requested()){SdWindowHost.install(System.getProperty("saidroid.window.library",System.getenv("ANDROID_ROOT")+"/lib/libsdwindow.so"));String desktopId=System.getenv("SAILDROID_DESKTOP_ID");SdWindowHost.start(SdApkPackage.NAME,desktopId!=null?desktopId:"saildroid-"+SdApkPackage.NAME);}
             // This is an application process. systemMain() initializes Android's
@@ -84,6 +87,15 @@ public final class SdRuntime {
             Constructor<ActivityThread> threadConstructor=ActivityThread.class.getDeclaredConstructor();threadConstructor.setAccessible(true);
             ActivityThread thread=threadConstructor.newInstance();
             Method attach=ActivityThread.class.getDeclaredMethod("attach",boolean.class,long.class);attach.setAccessible(true);attach.invoke(thread,false,0L);SdStartup.phase("thread_attached");
+            // ActivityThread.main publishes this handler after attach. Framework
+            // callbacks such as background SharedPreferences listener delivery
+            // use it directly, before any Activity needs to be created.
+            Method getHandler=ActivityThread.class.getDeclaredMethod("getHandler");getHandler.setAccessible(true);
+            android.os.Handler mainHandler=(android.os.Handler)getHandler.invoke(thread);
+            if(mainHandler.getLooper()!=Looper.getMainLooper())throw new IllegalStateException("Application handler must use the main Looper");
+            Field sharedHandler=ActivityThread.class.getDeclaredField("sMainThreadHandler");sharedHandler.setAccessible(true);
+            if(sharedHandler.get(null)==null)sharedHandler.set(null,mainHandler);
+            System.err.println("SDRUNTIME=main_thread_handler_ready|looper=main|before_application_bind=true");
             System.err.println("SDRUNTIME=application_thread_attached");
             if(Boolean.getBoolean("saidroid.vmDiagnostics"))System.err.println("VM_CODE_MAPS_START\n"+new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("/proc/self/maps")),"UTF-8")+"VM_CODE_MAPS_END");
             Configuration hostConfiguration=SdActivityHost.displayConfiguration();
@@ -99,14 +111,17 @@ public final class SdRuntime {
             SdStartup.phase("mmkv_start");
             if(new java.io.File(app.nativeLibraryDir,"libmmkv.so").isFile()){
                 Class<?> mmkv=Class.forName("com.tencent.mmkv.MMKV",false,loader);
-                Method load=Runtime.class.getMethod("loadLibrary",String.class,ClassLoader.class);
-                load.invoke(Runtime.getRuntime(),"mmkv",mmkv.getClassLoader());
+                Method load=Runtime.class.getDeclaredMethod("loadLibrary0",ClassLoader.class,String.class);load.setAccessible(true);
+                load.invoke(Runtime.getRuntime(),mmkv.getClassLoader(),"mmkv");
             }
             SdStartup.phase("mmkv_ready");
             Class<?> binding=Class.forName("android.app.ActivityThread$AppBindData");
             Constructor<?> constructor=binding.getDeclaredConstructor();constructor.setAccessible(true);Object data=constructor.newInstance();
             set(data,"appInfo",app);set(data,"info",loaded);set(data,"processName",SdApkPackage.processName());set(data,"compatInfo",CompatibilityInfo.DEFAULT_COMPATIBILITY_INFO);
             set(data,"config",hostConfiguration);
+            // Android 9 copies this binding value into the public Build.SERIAL
+            // field. The component has no device-identifier service.
+            set(data,"buildSerial",android.os.Build.UNKNOWN);
             ArrayList<ProviderInfo> providers=new ArrayList<ProviderInfo>();
             for(android.content.pm.PackageParser.Provider provider:SdApkPackage.parsed().providers){
                 String process=SdApkPackage.providerProcess(provider.info);if(!process.equals(SdApkPackage.processName()))continue;

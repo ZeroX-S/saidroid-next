@@ -62,10 +62,25 @@ public final class SdInputMethods implements InvocationHandler,SdMaliit.Listener
     }
     private SdInputMethods(){service=(IInputMethodManager)Proxy.newProxyInstance(IInputMethodManager.class.getClassLoader(),new Class<?>[]{IInputMethodManager.class},this);binder.attachInterface(service,"com.android.internal.view.IInputMethodManager");}
     public static IBinder binder(){return instance.binder;}public static IInputMethodManager service(){return instance.service;}
+    public static void registerClient(IInputMethodClient callback,IInputContext context){
+        Client c=new Client(callback,context);c.session=instance.session(c);
+        instance.clients.put(callback.asBinder(),c);
+    }
     public static void requestShow(){ Client c=instance.focused; if(c!=null&&c.editor!=null)instance.show(c,true,null); }
     private Client client(Object object){Client c=clients.get(((IInputMethodClient)object).asBinder());if(c==null)throw new IllegalArgumentException("Input client was not registered");return c;}
     private boolean hidden(Client c){int type=c.editor.inputType,variation=type&InputType.TYPE_MASK_VARIATION;return(type&InputType.TYPE_MASK_CLASS)==InputType.TYPE_CLASS_NUMBER?variation==InputType.TYPE_NUMBER_VARIATION_PASSWORD:variation==InputType.TYPE_TEXT_VARIATION_PASSWORD||variation==InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD||variation==InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;}
-    private InputBindResult result(Client c){return new InputBindResult(SdMaliit.connected()?InputBindResult.ResultCode.SUCCESS_WITH_IME_SESSION:InputBindResult.ResultCode.SUCCESS_WAITING_IME_BINDING,SdMaliit.connected()?c.session:null,null,ID,c.sequence,null);}
+    private InputBindResult result(Client c){
+        boolean connected=SdMaliit.connected();
+        int code=connected?InputBindResult.ResultCode.SUCCESS_WITH_IME_SESSION:InputBindResult.ResultCode.SUCCESS_WAITING_IME_BINDING;
+        try {
+            // Android 9 uses a user-action sequence; Android 10 uses a virtual-display matrix.
+            Class<?> tail=android.os.Build.VERSION.SDK_INT==28?int.class:android.graphics.Matrix.class;
+            Object value=android.os.Build.VERSION.SDK_INT==28?Integer.valueOf(0):null;
+            return InputBindResult.class.getConstructor(int.class,IInputMethodSession.class,InputChannel.class,String.class,int.class,tail)
+                    .newInstance(code,connected?c.session:null,null,ID,c.sequence,value);
+        } catch(ReflectiveOperationException failure){throw new IllegalStateException("Unsupported InputBindResult ABI",failure);}
+    }
+
     private void widget(Client c,boolean changed){
         if(c!=focused||c.editor==null)return;int input=c.editor.inputType,kind=input&InputType.TYPE_MASK_CLASS,variation=input&InputType.TYPE_MASK_VARIATION;
         int content=kind==InputType.TYPE_CLASS_PHONE?2:kind==InputType.TYPE_CLASS_NUMBER?1:variation==InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS||variation==InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS?3:variation==InputType.TYPE_TEXT_VARIATION_URI?4:0;
@@ -99,14 +114,38 @@ public final class SdInputMethods implements InvocationHandler,SdMaliit.Listener
         ExtractedTextRequest request=new ExtractedTextRequest();request.hintMaxChars=2048;request.hintMaxLines=20;c.context.getExtractedText(request,0,++extractSequence,callback);
     }
     private void show(Client c,boolean visible,ResultReceiver receiver){c.wantsShow=visible;c.receiver=receiver;if(!visible){if(!SdMaliit.connected()||keyboardHeight==0){if(receiver!=null)receiver.send(1,null);c.receiver=null;}else SdMaliit.show(false);return;}SdMaliit.start(this);widget(c,false);if(SdMaliit.connected())SdMaliit.show(true);}
-    private void finish(Client c){if(c==focused){show(c,false,null);if(c.context!=null)try{c.context.finishComposingText();}catch(RemoteException ignored){}c.surrounding="";c.editor=null;focused=null;generation++;syncDismiss();}}
+    private void finish(Client c){
+        if(c!=focused)return;
+        IInputContext context=c.context;
+        // Finishing composition can synchronously report selection and re-enter
+        // finishInput. Retire this editor before calling its input connection.
+        focused=null;
+        c.editor=null;
+        c.surrounding="";
+        generation++;
+        show(c,false,null);
+        syncDismiss();
+        if(context!=null)try{context.finishComposingText();}catch(RemoteException ignored){}
+    }
     public static void hostFocus(boolean active){instance.hostActive=active;instance.syncDismiss();Client c=instance.focused;if(c==null||c.editor==null)return;if(active){instance.widget(c,true);if(c.wantsShow)SdMaliit.show(true);}else{instance.widget(c,true);SdMaliit.show(false);}}
     @Override public Object invoke(Object p,Method m,Object[] a)throws Throwable{
         String n=m.getName();if(n.equals("asBinder"))return binder;if(n.equals("toString"))return "SailDroid Maliit input methods";if(n.equals("hashCode"))return System.identityHashCode(p);if(n.equals("equals"))return p==a[0];
         if(n.equals("getInputMethodList")||n.equals("getEnabledInputMethodList")){return Arrays.asList(new InputMethodInfo("org.saildroid.runtime","org.saildroid.runtime.Maliit","Sailfish keyboard",null));}
         if(n.equals("getEnabledInputMethodSubtypeList")||n.equals("getShortcutInputMethodsAndSubtypes"))return new ArrayList<Object>();
         if(n.equals("getCurrentInputMethodSubtype")||n.equals("getLastInputMethodSubtype"))return null;
-        if(n.equals("addClient")){if((Integer)a[2]!=SdDisplayShim.DISPLAY_ID)throw new IllegalArgumentException("Unknown input display");IInputMethodClient callback=(IInputMethodClient)a[0];Client c=new Client(callback,(IInputContext)a[1]);c.session=session(c);clients.put(callback.asBinder(),c);return null;}
+        if(n.equals("addClient")){
+            if(Build.VERSION.SDK_INT<29){
+                if((Integer)a[2]!=Process.myUid()||(Integer)a[3]!=Process.myPid())
+                    throw new IllegalArgumentException("Input client belongs to another process");
+            }else if((Integer)a[2]!=SdDisplayShim.DISPLAY_ID){
+                throw new IllegalArgumentException("Unknown input display");
+            }
+            registerClient((IInputMethodClient)a[0],(IInputContext)a[1]);return null;
+        }
+        if(n.equals("removeClient")){
+            Client c=clients.remove(((IInputMethodClient)a[0]).asBinder());
+            if(c!=null)finish(c);return null;
+        }
         if(n.equals("startInputOrWindowGainedFocus")){
             Client c=client(a[1]);c.window=(IBinder)a[2];EditorInfo editor=(EditorInfo)a[6];
             // A focus-only report has no new EditorInfo/InputContext. Android

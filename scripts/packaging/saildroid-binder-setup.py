@@ -150,6 +150,98 @@ def mount_type(path):
     return None
 
 
+def prepare_static_binder(account):
+    sources = (Path('/dev/anbox-binder'), Path('/dev/puddlejumper'))
+    metadata = None
+    if METADATA.exists() or METADATA.is_symlink():
+        metadata_info = METADATA.lstat()
+        if not stat.S_ISREG(metadata_info.st_mode) or metadata_info.st_uid != 0 or stat.S_IMODE(metadata_info.st_mode) != 0o644:
+            raise RuntimeError('Untrusted static Binder metadata')
+        metadata = json.loads(METADATA.read_text())
+        source = Path(metadata.get('source', ''))
+        if source not in sources:
+            raise RuntimeError('Existing Binder provisioning has an unsupported static source')
+    else:
+        source = next((path for path in sources if path.exists()), None)
+        if source is None:
+            raise RuntimeError('A dedicated anbox-binder or puddlejumper device is required without binderfs')
+    root_directory(source.parent, 0o755)
+    info = source.lstat()
+    if not stat.S_ISCHR(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600:
+        raise RuntimeError('The dedicated static Binder device is not trusted: ' + str(source))
+    identity = Path('/sys/class/misc/' + source.name + '/dev').read_text().strip()
+    expected = str(os.major(info.st_rdev)) + ':' + str(os.minor(info.st_rdev))
+    if identity != expected:
+        raise RuntimeError('Static Binder device differs from its kernel registration')
+    managed = False
+    if metadata is not None:
+        managed = (metadata.get('schema') == 'saildroid-static-binder-provision-v1'
+                   and metadata.get('source') == str(source)
+                   and metadata.get('major') == os.major(info.st_rdev)
+                   and metadata.get('minor') == os.minor(info.st_rdev))
+        if not managed:
+            raise RuntimeError('Existing Binder provisioning differs from the static device')
+    for process in Path('/proc').iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            for descriptor in (process / 'fd').iterdir():
+                opened = descriptor.stat()
+                if stat.S_ISCHR(opened.st_mode) and opened.st_rdev == info.st_rdev:
+                    executable = os.readlink(process / 'exe')
+                    if not (managed and executable.startswith('/opt/saildroid/releases/')
+                            and Path(executable).name == 'saildroid-host'
+                            and process.stat().st_uid == account.pw_uid):
+                        raise RuntimeError('Dedicated Binder is already in use by PID ' + process.name)
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    if TARGET.exists() or TARGET.is_symlink():
+        target_info = TARGET.lstat()
+        if (not stat.S_ISCHR(target_info.st_mode)
+                or target_info.st_rdev != info.st_rdev or target_info.st_uid != account.pw_uid
+                or target_info.st_gid != account.pw_gid or stat.S_IMODE(target_info.st_mode) != 0o600):
+            raise RuntimeError('Unexpected existing static Binder target')
+    else:
+        descriptor, temporary = tempfile.mkstemp(prefix='.binder-', dir=DIRECTORY)
+        os.close(descriptor)
+        os.unlink(temporary)
+        try:
+            os.mknod(temporary, stat.S_IFCHR | 0o600, info.st_rdev)
+            os.chown(temporary, account.pw_uid, account.pw_gid)
+            os.replace(temporary, TARGET)
+            fsync_directory(DIRECTORY)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+    descriptor = os.open(TARGET, os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        version = bytearray(struct.pack('i', 0))
+        fcntl.ioctl(descriptor, BINDER_VERSION, version, True)
+    finally:
+        os.close(descriptor)
+    protocol = struct.unpack('i', version)[0]
+    if protocol != 8:
+        raise RuntimeError('Incompatible static Binder protocol: ' + str(protocol))
+    metadata = dict(schema='saildroid-static-binder-provision-v1', backend='static-binder',
+                    source=str(source), device=str(TARGET), uid=account.pw_uid, gid=account.pw_gid,
+                    major=os.major(info.st_rdev), minor=os.minor(info.st_rdev), protocol=protocol,
+                    boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip())
+    descriptor, temporary = tempfile.mkstemp(prefix='.provision-', dir=DIRECTORY)
+    try:
+        with os.fdopen(descriptor, 'w') as output:
+            os.fchmod(output.fileno(), 0o644)
+            json.dump(metadata, output, indent=2)
+            output.write('\n')
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, METADATA)
+        fsync_directory(DIRECTORY)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    print('SAILDROID_BINDER_READY ' + json.dumps(metadata, sort_keys=True))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--install-service', action='store_true')
@@ -161,6 +253,11 @@ def main():
     with open(RUNTIME / 'setup.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         prepare_directories(account)
+        if not any(line.split()[-1] == 'binder' for line in Path('/proc/filesystems').read_text().splitlines()):
+            prepare_static_binder(account)
+            if arguments.install_service:
+                install_service(account)
+            return
         if existing_external_device(account):
             return
         filesystem_type = mount_type(FILESYSTEM)
