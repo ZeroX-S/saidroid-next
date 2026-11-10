@@ -307,6 +307,68 @@ class BinderSetupTests(unittest.TestCase):
         self.module.prepare_static_binder(self.account)
         self.assertTrue(self.module.TARGET.exists())
 
+    def legacy_binder1_fixture(self):
+        source, processes = self.static_fixture('binder1')
+        self.device(self.module.TARGET)
+        os.chown(self.module.TARGET, self.account.pw_uid, self.account.pw_gid)
+        self.module.TARGET.chmod(0o600)
+        metadata = dict(source=str(source), source_mode='0o600',
+                        device=str(self.module.TARGET), major=1, minor=3,
+                        uid=self.account.pw_uid)
+        self.module.METADATA.write_text(json.dumps(metadata))
+        self.module.METADATA.chmod(0o644)
+        return source, processes, metadata
+
+    def test_legacy_binder1_is_verified_migrated_and_repeatable(self):
+        source, _, _ = self.legacy_binder1_fixture()
+        before = self.module.TARGET.stat()
+        self.module.prepare_static_binder(self.account)
+        metadata = json.loads(self.module.METADATA.read_text())
+        self.assertEqual(metadata['schema'], 'saildroid-static-binder-provision-v1')
+        self.assertEqual(metadata['source'], str(source))
+        self.module.prepare_static_binder(self.account)
+        after = self.module.TARGET.stat()
+        self.assertEqual((before.st_dev, before.st_ino), (after.st_dev, after.st_ino))
+        self.assertEqual((source.stat().st_uid, stat.S_IMODE(source.stat().st_mode)), (0, 0o600))
+
+    def test_binder1_is_not_selected_without_existing_receipt(self):
+        self.static_fixture('binder1')
+        with self.assertRaisesRegex(RuntimeError, 'dedicated anbox-binder or puddlejumper'):
+            self.module.prepare_static_binder(self.account)
+        self.assertFalse(self.module.TARGET.exists())
+
+    def test_legacy_binder1_receipt_mismatches_preserve_existing_state(self):
+        _, _, metadata = self.legacy_binder1_fixture()
+        before = self.module.TARGET.stat()
+        for key, value in (('uid', 0), ('source_mode', '0o666'), ('major', 2),
+                           ('minor', 4), ('device', '/dev/binder'), ('unexpected', True)):
+            with self.subTest(key=key):
+                changed = dict(metadata, **{key: value})
+                self.module.METADATA.write_text(json.dumps(changed))
+                original = self.module.METADATA.read_bytes()
+                with self.assertRaisesRegex(RuntimeError, 'differs from the static device'):
+                    self.module.prepare_static_binder(self.account)
+                self.assertEqual(self.module.METADATA.read_bytes(), original)
+                self.assertEqual(self.module.TARGET.stat().st_ctime_ns, before.st_ctime_ns)
+
+    def test_legacy_binder1_missing_target_is_rejected(self):
+        self.legacy_binder1_fixture()
+        self.module.TARGET.unlink()
+        with self.assertRaisesRegex(RuntimeError, 'no existing target'):
+            self.module.prepare_static_binder(self.account)
+        self.assertFalse(self.module.TARGET.exists())
+
+    def test_legacy_binder1_external_consumer_is_rejected(self):
+        source, processes, _ = self.legacy_binder1_fixture()
+        process = processes / '123'
+        (process / 'fd').mkdir(parents=True)
+        (process / 'fd/3').symlink_to(source)
+        (process / 'exe').symlink_to('/usr/bin/other-consumer')
+        original = self.module.METADATA.read_bytes()
+        with self.assertRaisesRegex(RuntimeError, 'already in use'):
+            self.module.prepare_static_binder(self.account)
+        self.assertEqual(self.module.METADATA.read_bytes(), original)
+
     def test_puddlejumper_device_and_repeated_execution(self):
         source, _ = self.static_fixture('puddlejumper')
         before = source.stat()

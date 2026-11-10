@@ -161,7 +161,7 @@ def mount_type(path):
 
 
 def prepare_static_binder(account):
-    sources = (Path('/dev/anbox-binder'), Path('/dev/puddlejumper'))
+    sources = (Path('/dev/anbox-binder'), Path('/dev/puddlejumper'), Path('/dev/binder1'))
     metadata = None
     if METADATA.exists() or METADATA.is_symlink():
         metadata_info = METADATA.lstat()
@@ -172,7 +172,8 @@ def prepare_static_binder(account):
         if source not in sources:
             raise RuntimeError('Existing Binder provisioning has an unsupported static source')
     else:
-        source = next((path for path in sources if path.exists()), None)
+        # binder1 is accepted only with an existing checked provisioning receipt.
+        source = next((path for path in sources[:2] if path.exists()), None)
         if source is None:
             raise RuntimeError('A dedicated anbox-binder or puddlejumper device is required without binderfs')
     root_directory(source.parent, 0o755)
@@ -185,12 +186,18 @@ def prepare_static_binder(account):
         raise RuntimeError('Static Binder device differs from its kernel registration')
     managed = False
     if metadata is not None:
+        legacy = (source == Path('/dev/binder1') and metadata == dict(
+            source=str(source), source_mode='0o600', device=str(TARGET),
+            major=os.major(info.st_rdev), minor=os.minor(info.st_rdev),
+            uid=account.pw_uid))
         managed = (metadata.get('schema') == 'saildroid-static-binder-provision-v1'
                    and metadata.get('source') == str(source)
                    and metadata.get('major') == os.major(info.st_rdev)
-                   and metadata.get('minor') == os.minor(info.st_rdev))
+                   and metadata.get('minor') == os.minor(info.st_rdev)) or legacy
         if not managed:
             raise RuntimeError('Existing Binder provisioning differs from the static device')
+        if legacy and not TARGET.exists():
+            raise RuntimeError('Legacy Binder provisioning has no existing target')
     for process in Path('/proc').iterdir():
         if not process.name.isdigit():
             continue
