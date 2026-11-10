@@ -82,6 +82,15 @@ def private_names(prefix):
 provided_runtime = private_names('lib/') | private_names('lib/webview/')
 provided_compiler = private_names('compiler/lib/')
 requirements = {'glibc >= 2.38', 'libstdc++ >= 13.2'}
+# The private compatibility closure is built against this actual Qt/WPE ABI.
+# These modules load dynamically and therefore cannot be inferred by readelf.
+if {'libexec/sdwebview-host', 'lib/webview/libegl-stubs.so'} <= expected['files'].keys():
+    requirements.update({
+        'libepoxy = 1.5.11-768.1', 'libwpe = 1.17.0-768.1',
+        'wpebackend-fdo = 1.17.0-768.1', 'wpewebkit2 = 2.54.2-768.1',
+        'wpewebkit2-qt5 = 2.54.2-768.1',
+    })
+
 if 'bin/saildroid-setup' in expected['files']:
     # Python's actual file provider is portable across python3/python3-base
     # package naming. The helper independently checks its supported version.
