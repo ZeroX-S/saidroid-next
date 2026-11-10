@@ -1,5 +1,9 @@
 # 安装开发版 RPM
 
+API28/API29 完整运行时并存、预览、冷切换和回滚见
+[多 API 运行时说明](MULTI-API-RUNTIMES.md)。切换入口只选择已有完整 release；
+不会把下面的 API29 发布包转换成 API28。
+
 发布包是 aarch64 独立运行时，不是 Android 系统镜像。已验证环境：Pixel 3a XL、Sailfish OS 5.2.0.16、glibc 2.41。当前包需要已有的项目 ART/Binder 基础环境、普通用户 `defaultuser` 及其 Wayland / D-Bus 会话。其他设备和全新系统的自动配置尚未验证。
 
 ## 1. 核对包和依赖

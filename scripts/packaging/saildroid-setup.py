@@ -31,6 +31,7 @@ MANAGER = 'org.saildroid.manager'
 MANAGER_ID = 'org.saildroid.app.p' + hashlib.sha256(MANAGER.encode()).hexdigest()[:20]
 ID = re.compile(r'[a-z0-9][a-z0-9.-]{0,100}\Z')
 PACKAGE = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\Z')
+SUPPORTED_APIS = (28, 29)
 
 
 def require(ok, message):
@@ -48,6 +49,26 @@ def digest(path):
 
 def document(path):
     return json.loads(path.read_text())
+
+
+def runtime_api(runtime, manifest, build_properties=None):
+    """The guest framework API is independent of the phone's vendor API."""
+    api = runtime.get('api')
+    require(type(api) is int and api in SUPPORTED_APIS and runtime.get('native_host') is True,
+            'Only the native API28/API29 bootstrap is supported')
+    # Old activation manifests did not record an API. A recorded value must
+    # agree; release names are never used as an API declaration.
+    if 'api' in manifest:
+        require(type(manifest['api']) is int and manifest['api'] == api,
+                'Activation manifest and runtime API differ')
+    if build_properties is not None:
+        values = []
+        for line in build_properties.splitlines():
+            key, separator, value = line.strip().partition('=')
+            if separator and key == 'ro.build.version.sdk':
+                values.append(value.strip())
+        require(values == [str(api)], 'Framework build.prop and runtime API differ')
+    return api
 
 
 def fsync_directory(path):
@@ -261,7 +282,9 @@ class Platform:
                     exe = exe[:-10]
                 command = (p / 'cmdline').read_bytes()
                 scoped = any(exe.startswith(root + '/') for root in (RELEASES, LEGACY_RELEASES))
-                if ((scoped and Path(exe).name in ('saildroid-host', 'saildroid-app', 'dalvikvm', 'dalvikvm-real'))
+                # Include native WebView/media/compiler helpers, which can
+                # outlive the ART host. Never switch under an old helper.
+                if (scoped
                     or exe == '/home/art/bin/dalvikvm'
                     or b'api29-root/lib/runtime.jar' in command
                     or command.startswith((b'org.saildroid.manager\0', b'saildroid-supervisor:'))):
@@ -459,14 +482,60 @@ class Setup:
                     and release in path.resolve().parents, 'Payload symlink escapes release: ' + relative)
             require(path.lstat().st_uid == 0, 'Untrusted payload symlink')
         runtime = document(release / 'runtime.json')
-        require(runtime.get('api') == 29 and runtime.get('native_host') is True, 'Only the native API29 bootstrap is supported')
+        api = runtime_api(runtime, manifest,
+                          (release / 'build.prop').read_text()
+                          if 'build.prop' in files or 'build.prop' in links else None)
         for required in ('libexec/saildroid-app', 'libexec/saildroid-host', 'bin/dalvikvm', 'share/manager.apk'):
             require(required in files, 'Required native installation entry is absent: ' + required)
         if not legacy:
             require(REGISTRY_JAR in files, 'Packaged registry setup payload missing')
         self.host.check_capabilities(release, legacy=legacy)
         package = None if legacy else self.host.check_package(release, release.name)
-        return dict(path=str(release), manifest_sha256=manifest_hash, legacy=legacy, package=package)
+        return dict(path=str(release), manifest_sha256=manifest_hash, legacy=legacy, package=package, api=api)
+
+    def profiles(self):
+        """Read-only inventory; invalid releases stay visible as diagnostics."""
+        root = self.host.path(RELEASES)
+        result = []
+        if root.exists() or root.is_symlink():
+            trusted(root, self.host.prefix, True)
+            for release in sorted(root.iterdir()):
+                try:
+                    result.append(dict(valid=True, release_id=release.name, **self.verify(release)))
+                except (RuntimeError, OSError, ValueError, KeyError, TypeError) as error:
+                    result.append(dict(valid=False, release_id=release.name, error=str(error)))
+        return dict(status='profiles', active_link=self.read_link(), profiles=result,
+                    selection_scope='whole-runtime', switch_mode='cold')
+
+    def select_api(self, api, release_id=None, apply=False):
+        require(type(api) is int and api in SUPPORTED_APIS, 'Unsupported framework API')
+        if release_id is not None:
+            require(isinstance(release_id, str) and ID.fullmatch(release_id), 'Unsafe release id')
+            selected = self.verify(self.host.path(RELEASES + '/' + release_id))
+            require(selected['api'] == api, 'Selected release does not provide the requested API')
+        else:
+            inventory = self.profiles()
+            candidates = [entry for entry in inventory['profiles'] if entry['valid'] and entry['api'] == api]
+            require(candidates, 'No verified installed runtime for API ' + str(api))
+            require(len(candidates) == 1,
+                    'Multiple runtimes provide API ' + str(api) + '; specify --release: '
+                    + ', '.join(entry['release_id'] for entry in candidates))
+            selected = candidates[0]
+            release_id = selected['release_id']
+        plan = dict(status='planned', api=api, release_id=release_id,
+                    target=selected, active_link=self.read_link(), busy=self.host.busy(),
+                    interrupted=(self.state / 'pending.json').exists(),
+                    switch_mode='cold', selection_scope='whole-runtime',
+                    activation_performed=False, readiness_rechecked_on_apply=True)
+        if not apply:
+            return plan
+        # Reuse all activation interlocks, launcher snapshots, journal and
+        # rollback logic. An intervening payload update invalidates this plan.
+        result = self.change(release_id, expected_api=api,
+                             expected_manifest=selected['manifest_sha256'])
+        result.update(api=api, switch_mode='cold', selection_scope='whole-runtime',
+                      activation_performed=True)
+        return result
 
     def previous(self, link):
         if link is None:
@@ -548,10 +617,13 @@ class Setup:
     def check_pending(self):
         require(not (self.state / 'pending.json').exists(), 'Interrupted transaction found; run recover before another switch')
 
-    def change(self, release_id):
+    def change(self, release_id, expected_api=None, expected_manifest=None):
+        require(isinstance(release_id, str) and ID.fullmatch(release_id), 'Unsafe release id')
         self.host.check_session(self.account)
         release = self.host.path(RELEASES + '/' + release_id)
-        target = self.verify(release)
+        target = self.verify(release, expected_manifest=expected_manifest)
+        if expected_api is not None:
+            require(target['api'] == expected_api, 'Selected release API changed')
         # Provisioning must also be able to finish a previous partial attempt.
         self.prepare(binder=False)
         self.check_pending()
@@ -703,6 +775,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('status')
+    sub.add_parser('profiles', help='verify installed API28/API29 runtimes without activating')
+    select = sub.add_parser('select-api', help='preview or apply a whole-runtime cold switch')
+    select.add_argument('api', type=int, choices=SUPPORTED_APIS)
+    select.add_argument('--release', help='required when more than one verified release provides this API')
+    select.add_argument('--apply', action='store_true', help='activate only after all SailDroid processes exit')
     activate = sub.add_parser('activate')
     activate.add_argument('release')
     sub.add_parser('rollback')
@@ -716,6 +793,8 @@ def main():
         if args.command == 'activate':
             require(ID.fullmatch(args.release), 'Unsafe release id')
             result = setup.change(args.release)
+        elif args.command == 'select-api':
+            result = setup.select_api(args.api, args.release, args.apply)
         else:
             result = getattr(setup, args.command)()
         print(json.dumps(result, indent=2, sort_keys=True))

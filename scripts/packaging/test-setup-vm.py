@@ -68,9 +68,9 @@ def fixture():
   finally:
    for sock in sockets:sock.close()
 
-def release(host,name,legacy=False):
+def release(host,name,legacy=False,api=29):
  root=host.path((m.LEGACY_RELEASES if legacy else m.RELEASES)+'/'+name);owned(root)
- files={'runtime.json':json.dumps(dict(api=29,native_host=True)), 'libexec/saildroid-app':'fixture bootstrap', 'libexec/saildroid-host':'fixture host','bin/dalvikvm':'fixture cli','share/manager.apk':'fixture system apk','share/icons/saildroid.svg':'<svg/>',m.REGISTRY_JAR:'fixture registry jar'}
+ files={'runtime.json':json.dumps(dict(api=api,native_host=True)), 'build.prop':'ro.build.version.sdk='+str(api)+'\n', 'libexec/saildroid-app':'fixture bootstrap', 'libexec/saildroid-host':'fixture host','bin/dalvikvm':'fixture cli','share/manager.apk':'fixture system apk','share/icons/saildroid.svg':'<svg/>',m.REGISTRY_JAR:'fixture registry jar'}
  for rel,data in files.items():
   p=root/rel;owned(p.parent);p.write_text(data);p.chmod(0o755 if rel.startswith(('bin/','libexec/')) else 0o644)
  seal(root,legacy);return root
@@ -87,6 +87,94 @@ def application(host,package='com.example.fixture'):
  return root
 
 q=subprocess.run(['python3',str(module_path),'status'],capture_output=True,text=True);assert q.returncode==1 and 'Sailfish OS 5.2 and 5.3' in q.stderr;record('production-cli-refuses-build-vm')
+with fixture()as host:
+ before=sorted(str(p.relative_to(host.prefix))for p in host.prefix.rglob('*'))
+ assert action(host,'profiles')['profiles']==[]
+ assert before==sorted(str(p.relative_to(host.prefix))for p in host.prefix.rglob('*'))
+ record('empty-profile-inventory-is-read-only')
+with fixture()as host:
+ # Names deliberately carry no API hint. The sealed payload is authoritative.
+ a=release(host,'compat-a',api=28);b=release(host,'compat-b',api=29)
+ before={str(p.relative_to(host.prefix)):m.digest(p)for p in host.prefix.rglob('*')if p.is_file()}
+ inventory=action(host,'profiles');assert [(r['release_id'],r['api'])for r in inventory['profiles']]==[('compat-a',28),('compat-b',29)]
+ plan=action(host,'select_api',28);assert plan['release_id']=='compat-a' and not plan['activation_performed']
+ assert not host.path('/home/art').exists()and not host.path(m.STATE).exists()
+ assert before=={str(p.relative_to(host.prefix)):m.digest(p)for p in host.prefix.rglob('*')if p.is_file()}
+ record('api-selection-preview-preserves-all-files')
+ result=action(host,'select_api',28,None,True);assert result['api']==28 and result['switch_mode']=='cold'
+ app=application(host);saved=(app/'record.json').read_bytes();data=(app/'data/keep').read_bytes()
+ action(host,'select_api',29,None,True);assert os.readlink(host.path('/home/art/api29-root'))==str(b)
+ action(host,'rollback');assert os.readlink(host.path('/home/art/api29-root'))==str(a)
+ assert (app/'record.json').read_bytes()==saved and (app/'data/keep').read_bytes()==data
+ record('api28-api29-cold-switch-and-rollback-preserve-apps')
+ host.busy_records=[dict(pid=778,executable=str(a/'libexec/sdwebview-host'))]
+ assert action(host,'select_api',29)['busy']==host.busy_records
+ must_fail('api-switch-refuses-running-helper',lambda:action(host,'select_api',29,None,True),'Close SailDroid-owned')
+ host.busy_records=[]
+ host.fail_refresh=True
+ must_fail('cross-api-refresh-failure-rolls-back',lambda:action(host,'select_api',29,None,True),'refresh failure')
+ host.fail_refresh=False
+ assert os.readlink(host.path('/home/art/api29-root'))==str(a)
+ record('cross-api-failure-keeps-previous-root')
+ lock=host.path('/run/user/65534/saildroid/host-manager.lock');fd=os.open(lock,os.O_RDWR);fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ try:must_fail('api-switch-refuses-manager-startup-race',lambda:action(host,'select_api',29,None,True),'holds the lock')
+ finally:os.close(fd)
+ c=release(host,'compat-c',api=28)
+ must_fail('ambiguous-api-requires-release',lambda:action(host,'select_api',28),'Multiple runtimes')
+ action(host,'select_api',28,'compat-c',True);assert os.readlink(host.path('/home/art/api29-root'))==str(c)
+ must_fail('explicit-api-mismatch-refused',lambda:action(host,'select_api',29,'compat-c',True),'requested API')
+ must_fail('unsafe-selection-id-refused',lambda:action(host,'select_api',28,'../escape',True),'Unsafe release id')
+ must_fail('unsupported-api-refused',lambda:action(host,'select_api',30),'Unsupported framework API')
+ # An interrupted cross-API transaction recovers the same journal as activate.
+ action(host,'select_api',29,None,True);history=m.document(host.path(m.STATE+'/history.json'));saved=history[-1]
+ m.atomic_json(host.path(m.STATE+'/pending.json'),dict(saved,history_before=history[:-1]))
+ must_fail('api-switch-refuses-pending-transaction',lambda:action(host,'select_api',28,'compat-a',True),'Interrupted')
+ action(host,'recover');assert os.readlink(host.path('/home/art/api29-root'))==str(c)
+ record('cross-api-interruption-recovers-pre-switch-state')
+with fixture()as host:
+ a=release(host,'compat-a',api=28)
+ pinned=m.digest(a/m.MANIFEST)
+ must_fail('selected-api-change-refused',lambda:action(host,'change','compat-a',29,pinned),'release API changed')
+ must_fail('selected-manifest-change-refused',lambda:action(host,'change','compat-a',28,'0'*64),'manifest changed')
+ assert not host.path('/home/art').exists()
+ (a/'build.prop').write_text('ro.build.version.sdk=29\n');seal(a)
+ must_fail('framework-property-api-mismatch-refused',lambda:action(host,'select_api',28,'compat-a',True),'build.prop')
+ (a/'build.prop').rename(a/'linked-build.prop');(a/'build.prop').symlink_to('linked-build.prop');seal(a)
+ must_fail('linked-framework-property-api-mismatch-refused',lambda:action(host,'select_api',28,'compat-a',True),'build.prop')
+ (a/'build.prop').unlink();(a/'linked-build.prop').rename(a/'build.prop')
+ (a/'build.prop').write_text('ro.build.version.sdk=28\n');seal(a)
+ manifest=m.document(a/m.MANIFEST);manifest['api']=29;(a/m.MANIFEST).write_text(json.dumps(manifest))
+ must_fail('manifest-api-mismatch-refused',lambda:action(host,'select_api',28,'compat-a',True),'manifest and runtime API')
+ seal(a);(a/'libexec/saildroid-host').write_text('corrupt')
+ inventory=action(host,'profiles');assert not inventory['profiles'][0]['valid'] and 'hash mismatch'in inventory['profiles'][0]['error']
+ must_fail('invalid-profile-not-auto-selected',lambda:action(host,'select_api',28),'No verified')
+ host.path(m.RELEASES+'/escaped').symlink_to(a)
+ assert all(not r['valid']for r in action(host,'profiles')['profiles'])
+ record('linked-or-damaged-profiles-stay-diagnostic-only')
+for api in (28,29):
+ with fixture()as host:
+  root=release(host,'seal-test',api=api);(root/m.MANIFEST).unlink()
+  helper=root/'bin/saildroid-setup';helper.write_text('fixture setup payload');helper.chmod(0o755)
+  command=['python3',str(module_path.with_name('seal-setup-manifest-vm.py')),'--root',str(root),'--release-id','seal-test']
+  if api==28:
+   (root/'build.prop').write_text('ro.build.version.sdk=29\n')
+   q=subprocess.run(command,capture_output=True,text=True);assert q.returncode!=0 and 'build.prop'in q.stderr and not(root/m.MANIFEST).exists()
+   record('sealer-refuses-mislabelled-framework')
+   (root/'build.prop').write_text('ro.build.version.sdk=28\n')
+  subprocess.run(command,capture_output=True,text=True,check=True)
+  assert m.document(root/m.MANIFEST)['api']==api
+  assert action(host,'select_api',api,'seal-test')['target']['api']==api
+  record('sealed-api'+str(api)+'-round-trip')
+with tempfile.TemporaryDirectory(prefix='saidroid-helper-process-')as d:
+ # Exercise production /proc scanning with a real helper process, outside /opt.
+ saved_releases=m.RELEASES;m.RELEASES=d
+ helper=Path(d)/'profile/libexec/sdwebview-host';helper.parent.mkdir(parents=True);shutil.copyfile('/bin/sleep',helper);helper.chmod(0o755)
+ child=subprocess.Popen([str(helper),'30'],start_new_session=True)
+ try:
+  assert any(row['pid']==child.pid for row in m.Platform().busy())
+  record('production-busy-scan-detects-native-helper')
+ finally:
+  child.terminate();child.wait(timeout=5);m.RELEASES=saved_releases
 with fixture()as host:
  a=release(host,'api29-a');previous=os.umask(0o077)
  try:action(host,'change','api29-a')
