@@ -16,6 +16,33 @@ geometry/history and safe-mode queries. Keep API-specific window/session
 interfaces separate: Android 9 uses Surface and Android 10 uses SurfaceControl
 and InsetsState. Display-event native layouts must match their framework.
 
+## Inherited API29 native Host
+
+The first phone candidate retained the accepted r321o native Host to preserve
+its ART/JNI closure. That old binary still used package-name validation for
+component class names. WeChat's `ProcessService$SupportProcessService` was
+therefore rejected before the declared service could start, even though the
+current product source already accepted Java nested-class names.
+
+For this inherited payload, use the bounded VM builder before sealing a new
+staging release:
+
+```sh
+python3 scripts/packaging/build-inherited-component-host-vm.py \
+  --runtime-root /path/to/accepted/staging-root \
+  --output /path/to/new/host-build
+```
+
+The builder verifies the recorded source/header closure and reproduces the
+accepted Host byte for byte. It applies the same `valid_component()` rule to
+the inherited manager and its four child-process entry points, then runs the
+component-name contract against those exact legacy sources. Package-name and
+caller/family validation remain unchanged. All existing dynamic exports and
+C/JNI exports are retained; the compiler additionally emits one existing
+internal weak C++ helper. Dynamic dependencies and RUNPATH are unchanged.
+The supplied root is never modified. Install the resulting Host only into a
+new sealed staging release, preserving the old installed release for rollback.
+
 ## Permissions
 
 The old app-writable `saildroid-runtime-permissions.properties` is no longer an
@@ -108,10 +135,34 @@ redirect, HTTP headers and HTTP cookies. Normal close returned exit status 0;
 all four owned app/helper process identities disappeared. Earlier harness
 attempts with incomplete process reaping were retained as failed attempts.
 
-This proves the renderer prerequisite and controlled verification flow. The
-actual WeChat account verification page still needs its own observation;
-starting WeChat at its welcome page does not satisfy that acceptance check.
+The actual WeChat verification page also loaded and accepted input; the user
+confirmed that it could be used. A later login attempt, after the user entered
+the SMS code, displayed `uuid_failed`. The native log contains completed page
+loads and input events without a renderer failure. The first WebView completed
+the `__wx` bridge handshake; the next WebView did not show the same handshake.
+That difference is under investigation and is not proof of the error's cause.
+WeChat login is not accepted as passing. Verification tickets and account
+details remain private; no successful security result is synthesized.
+
+These checks prove the renderer prerequisite and controlled verification flow.
 The phone tests used API29. A complete API28 phone runtime, cross-API phone
 switching and a trusted interactive permission broker remain separate work.
 Full CTS was not rerun for this integration. Every completed visible test
 restored actual backlight brightness to 0.
+
+The follow-up `r324b` candidate carries that native component-name fix in a
+separate release, `saildroid-runtime-api29-r324b-dev-20261110-0.324.2-1.aarch64`.
+Its RPM SHA-256 is
+`d1e6f05d5c963f57935b80a24e9470dd48b8abd19bbcf84a6ec09f8398290d18`.
+Installation, cold selection, manifest/package checks and another ordinary
+reboot passed; the user confirmed recovered desktop touch and swipes. Fresh
+WeChat startup presented its first app frame without an early-window failure.
+Its account-verification retry remains under observation.
+
+During the preceding retry, Lipstick stopped servicing display requests. MCE
+reported a compositor timeout; sampling both the main and render threads found
+them looping in the Adreno driver's command-submission descriptor traversal.
+The temporary WebView diagnostic had not executed in that failed app run.
+The trigger remains unproven. Closing owned apps did not recover the display;
+an ordinary reboot restored it. No compositor or networking service was
+replaced or manually stopped for this recovery.
