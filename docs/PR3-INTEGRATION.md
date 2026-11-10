@@ -69,3 +69,10 @@ For device updates retain the previous release, install an isolated candidate,
 perform an ordinary reboot, require a changed boot ID and fresh Lipstick/input
 health, then test actual QQ quote draft state and rendered WebView load/JS/input.
 Keep all chat screenshots and account-related logs outside public PR artifacts.
+
+The Binder activation helper preserves an existing root-owned `0750` ART parent
+with the phone user's group. It also migrates the earlier dedicated `/dev/binder1`
+receipt only after matching its exact legacy fields, kernel registration,
+source/target ownership and device numbers, absence of foreign consumers, and
+Binder protocol 8. Without an existing receipt it selects only the supported
+dedicated device names. Neither migration widens the ART parent's permissions.

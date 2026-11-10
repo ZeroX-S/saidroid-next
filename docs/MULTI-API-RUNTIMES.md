@@ -66,8 +66,11 @@ bootclasspath location，不能在切换时只替换它下面的某几个 JAR �
 
 完整 API28 release 仍需自己的 Java 编译输入、API28 native registration、
 framework resources、boot image、libcore/ART ABI、libhybris 插件和 CLI 验收。
-现有 `scripts/api29/build-product.py` 仍是 API29 构建入口。PR #3 的 API28
-源码迁移、权限存储问题和构建错误没有被这轮选择器改动修复，也没有合入。
+现有 `scripts/api29/build-product.py --api 28|29` 已选择对应框架、Java 源码
+变体、DEX 最低 API 和原生显示事件 ABI。PR #3 的源码已整合到开发分支，
+两套产品构建及定向回归通过；权限改为 root 管理、绑定 APK 哈希的只读策略。
+可信交互授权界面和完整 API28 手机运行时闭包仍需单独验收，详见
+[PR3 整合说明](PR3-INTEGRATION.md)。
 安装文件校验通过表示包完整，不表示该 API 的 UI、权限或 CTS 功能已通过。
 
 冷切换在旧进程退出后重新启动选中的独立宿主，在创建 VM 前确定所有库路径和
@@ -77,8 +80,8 @@ bootclasspath。API 切换不会改写已经运行的 ART、`Build.VERSION.SDK_I
 
 ## 后续优化顺序
 
-1. 先完成 API28 独立、可重建的产品闭包，并修复 PR #3 的可信权限决定边界。
-   权限记录挪到同 UID 可写的另一个目录仍不足以建立可信授权服务。
+1. 完成 API28 独立、可重建的完整运行时闭包，并建立可信的宿主交互授权服务。
+   当前 root 策略已关闭旧的自写授权文件入口；应用内对话框不能新增授权。
 2. 对每个完整 profile 记录 framework/native API、ART/libcore ABI、boot image
    指纹与支持的 vendor 适配；封装、native host 和 Java 启动共同校验。
 3. 在真实设备分别通过 CLI、窗口/输入、WebView、媒体、权限、生命周期和
