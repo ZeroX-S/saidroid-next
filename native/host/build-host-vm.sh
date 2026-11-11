@@ -11,4 +11,4 @@ g++ -std=c++17 -O2 -Wall -Wextra -rdynamic -o "$out/saildroid-host" \
  "$repo/native/host/saildroid-app.cpp" "$repo/native/host/host-entry.cpp" "$repo/native/host/host-manager.cpp" \
  "${includes[@]}" "${gio_flags[@]}" -L/home/art/lib -Wl,-rpath,/home/art/lib -lnativehelper -ldl -pthread
 g++ -std=c++17 -O2 -Wall -Wextra -fPIC -shared -o "$out/libsdhostapi.so" \
- "$repo/native/host/host-api.cpp" "$repo/native/host/host-audio.cpp" "$repo/native/host/host-network.cpp" "${includes[@]}" "${gio_flags[@]}" "${pulse_flags[@]}" -pthread
+ "$repo/native/host/host-api.cpp" "$repo/native/host/host-audio.cpp" "$repo/native/host/host-audio-record.cpp" "$repo/native/host/host-network.cpp" "${includes[@]}" "${gio_flags[@]}" "${pulse_flags[@]}" -pthread

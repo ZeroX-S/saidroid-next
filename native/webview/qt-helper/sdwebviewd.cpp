@@ -38,6 +38,9 @@ static void logMessage(QtMsgType, const QMessageLogContext &, const QString &mes
 #include "webkit-boundary.h"
 #include "webkit-ime.h"
 
+static constexpr int maxFrameBytes = 2160 * 4096 * 4;
+static constexpr int maxQueuedBytes = maxFrameBytes + 15 * 1024 * 1024;
+
 class WebHost : public QObject {
     Q_OBJECT
     QQuickRenderControl control;
@@ -65,7 +68,7 @@ class WebHost : public QObject {
         char header[4] = { char(length >> 24), char(length >> 16), char(length >> 8), char(length) };
         outgoing.append(header, 4); outgoing.append(json); outgoing.append(payload);
         // At most one frame is outstanding; control events also have a hard cap.
-        if (outgoing.size() > 24 * 1024 * 1024) { qCritical("SDWEBHOST=output_overflow"); QCoreApplication::exit(11); return; }
+        if (outgoing.size() > maxQueuedBytes) { qCritical("SDWEBHOST=output_overflow"); QCoreApplication::exit(11); return; }
         flush();
     }
     void flush() {
@@ -96,7 +99,7 @@ class WebHost : public QObject {
         }
         if (op == "resize") {
             const int w = object.value("width").toInt(), h = object.value("height").toInt();
-            if (w < 1 || h < 1 || w > 2160 || h > 4096 || qint64(w) * h > 9 * 1024 * 1024 / 4) {
+            if (w < 1 || h < 1 || w > 2160 || h > 4096 || qint64(w) * h * 4 > maxFrameBytes) {
                 packet(QJsonObject{{"event","error"},{"message","invalid viewport"}}); return;
             }
             if (w != width || h != height) {
@@ -323,7 +326,7 @@ int main(int argc,char **argv) {
     QGuiApplication app(argc,argv);
     if (argc != 4) return 2;
     bool okW=false,okH=false;int w=QString::fromLocal8Bit(argv[2]).toInt(&okW),h=QString::fromLocal8Bit(argv[3]).toInt(&okH);
-    if (!okW||!okH||w<1||h<1||w>2160||h>4096||qint64(w)*h>9*1024*1024/4) return 2;
+    if (!okW||!okH||w<1||h<1||w>2160||h>4096||qint64(w)*h*4>maxFrameBytes) return 2;
     WebHost host(w,h);
     if (!host.start(QString::fromLocal8Bit(argv[1]))) return 3;
     return app.exec();

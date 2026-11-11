@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Isolated filesystem tests. Deliberately refuses to execute on Sailfish OS."""
 from pathlib import Path
-import argparse, base64, contextlib, fcntl, hashlib, importlib.util, json, os, platform, shutil, socket, stat, subprocess, tempfile
+import argparse, base64, contextlib, fcntl, hashlib, importlib.util, json, os, platform, shutil, socket, stat, subprocess, tempfile, time
 
 parser=argparse.ArgumentParser();parser.add_argument('--output',type=Path,required=True);parser.add_argument('--legacy-bootstrap-root',type=Path);args=parser.parse_args()
 assert platform.system()=='Linux' and os.geteuid()==0
@@ -68,9 +68,9 @@ def fixture():
   finally:
    for sock in sockets:sock.close()
 
-def release(host,name,legacy=False):
+def release(host,name,legacy=False,api=29):
  root=host.path((m.LEGACY_RELEASES if legacy else m.RELEASES)+'/'+name);owned(root)
- files={'runtime.json':json.dumps(dict(api=29,native_host=True)), 'libexec/saildroid-app':'fixture bootstrap', 'libexec/saildroid-host':'fixture host','bin/dalvikvm':'fixture cli','share/manager.apk':'fixture system apk','share/icons/saildroid.svg':'<svg/>',m.REGISTRY_JAR:'fixture registry jar'}
+ files={'runtime.json':json.dumps(dict(api=api,native_host=True)), 'libexec/saildroid-app':'fixture bootstrap', 'libexec/saildroid-host':'fixture host','bin/dalvikvm':'fixture cli','share/manager.apk':'fixture system apk','share/icons/saildroid.svg':'<svg/>',m.REGISTRY_JAR:'fixture registry jar'}
  for rel,data in files.items():
   p=root/rel;owned(p.parent);p.write_text(data);p.chmod(0o755 if rel.startswith(('bin/','libexec/')) else 0o644)
  seal(root,legacy);return root
@@ -87,6 +87,57 @@ def application(host,package='com.example.fixture'):
  return root
 
 q=subprocess.run(['python3',str(module_path),'status'],capture_output=True,text=True);assert q.returncode==1 and 'Sailfish OS 5.2 and 5.3' in q.stderr;record('production-cli-refuses-build-vm')
+with fixture()as host:
+ root=release(host,'api28-a',api=28)
+ assert action(host,'status')['status']=='unconfigured'
+ action(host,'change','api28-a');assert os.readlink(host.path('/home/art/api29-root'))==str(root)
+ status=action(host,'status');assert status['active']['api']==28 and status['active']['available'] and status['status']=='ready'
+ action(host,'rollback');assert not host.path('/home/art/api29-root').is_symlink()
+ record('api28-activate-and-rollback')
+with fixture()as host:
+ old=release(host,'api29-removed');new=release(host,'api28-new',api=28)
+ action(host,'change','api29-removed');shutil.rmtree(old)
+ status=action(host,'status');assert status['status']=='missing-runtime' and not status['active']['available']
+ action(host,'change','api28-new');status=action(host,'status')
+ assert status['active']['api']==28 and status['previous']is None and not status['previous_available']
+ action(host,'rollback');assert action(host,'status')['status']=='unconfigured'
+ record('removed-runtime-link-replaced-without-invalid-rollback-target')
+with fixture()as host:
+ old=release(host,'api29-removed');new=release(host,'api28-new',api=28)
+ action(host,'change','api29-removed');action(host,'change','api28-new');shutil.rmtree(old)
+ status=action(host,'status');assert status['active']['api']==28 and status['previous']['path']==str(old) and not status['previous_available']
+ host.path('/home/art/api29-root').unlink();status=action(host,'status')
+ assert status['status']=='unconfigured' and status['previous']is None
+ action(host,'change','api28-new');assert action(host,'status')['previous']is None
+ record('uninstalled-history-is-separated-from-current-runtime')
+with fixture()as host:
+ old=release(host,'api29-old');new=release(host,'api28-new',api=28)
+ action(host,'change','api29-old');action(host,'change','api28-new')
+ (new/'runtime.json').write_text(json.dumps(dict(api=28,native_host=True,updated=True)));seal(new)
+ action(host,'change','api28-new');history=m.document(host.path(m.STATE+'/history.json'))
+ assert len(history)==2 and history[-1]['after']['manifest_sha256']==m.digest(new/m.MANIFEST)
+ action(host,'rollback');assert os.readlink(host.path('/home/art/api29-root'))==str(old)
+ record('same-directory-rpm-update-refreshes-active-manifest-without-history-growth')
+runtime=dict(rpm_activation=dict(schema='saildroid-rpm-activation-v1',mode='posttrans',release_id='api28-a'))
+scripts=m.rpm_install_scripts('api28-a')
+text=''.join(name+' scriptlet (using /bin/sh):\n'+body+'\n'for name,body in scripts.items())
+m.check_rpm_scripts(runtime,'api28-a',text);m.check_rpm_scripts({},'api28-a','')
+must_fail('unexpected-install-scriptlet-refused',lambda:m.check_rpm_scripts(runtime,'api28-a',text+'unexpected\n'),'scriptlets differ')
+record('sealed-installation-policy-and-inert-packages-validated')
+with fixture()as host:
+ root=release(host,'api28-a',api=28)
+ preflight=scripts['preinstall'].replace(m.RELEASES+'/api28-a',str(root))
+ assert subprocess.run(['/bin/sh','-c',preflight],capture_output=True,text=True).returncode==0
+ executable=root/'libexec/saildroid-host';shutil.copyfile('/bin/sleep',executable);executable.chmod(0o755)
+ child=subprocess.Popen([str(executable),'60'])
+ try:
+  for attempt in range(40):
+   if Path('/proc/'+str(child.pid)+'/exe').resolve()==executable:break
+   time.sleep(.05)
+  check=subprocess.run(['/bin/sh','-c',preflight],capture_output=True,text=True)
+  assert check.returncode!=0 and 'Close SailDroid' in check.stderr and str(child.pid) in check.stderr
+ finally:child.terminate();child.wait(timeout=10)
+ record('rpm-preinstall-blocks-overwriting-a-running-runtime')
 with fixture()as host:
  a=release(host,'api29-a');previous=os.umask(0o077)
  try:action(host,'change','api29-a')
@@ -200,6 +251,46 @@ for case,error in [('directory-mode','immutable'),('directory-group','kernel-bin
 with fixture()as host:
  release(host,'api29-a');owned(host.path('/home/art'));owned(host.path('/home/art/apps'))
  must_fail('unrelated-root-owned-app-storage-still-refused',lambda:action(host,'change','api29-a'),'Existing storage ownership differs')
+for declared in (None, 'cap_sys_resource=ep', 'cap_dac_override,cap_sys_resource=ep'):
+ with fixture() as host:
+  root = release(host, 'api28-cap-policy', api=28)
+  runtime = m.document(root / 'runtime.json')
+  if declared is not None:
+   runtime['native_bootstrap'] = dict(schema='saildroid-native-bootstrap-v1', capabilities=declared)
+   (root / 'runtime.json').write_text(json.dumps(runtime))
+  capability = declared or 'cap_sys_resource=ep'
+  subprocess.run(['setcap', capability, str(root / 'libexec/saildroid-app')], check=True)
+  m.Platform.check_capabilities(host, root)
+  record('native-bootstrap-policy-accepted-' + (declared or 'legacy-default'))
+  subprocess.run(['setcap', 'cap_sys_resource=ep', str(root / 'libexec/saildroid-host')], check=True)
+  must_fail('native-bootstrap-extra-path-refused-' + capability,
+            lambda: m.Platform.check_capabilities(host, root), 'Only the native bootstrap')
+  subprocess.run(['setcap', '-r', str(root / 'libexec/saildroid-host')], check=True)
+  subprocess.run(['setcap', capability.replace('=ep', ',cap_net_bind_service=ep'),
+                  str(root / 'libexec/saildroid-app')], check=True)
+  must_fail('native-bootstrap-extra-capability-refused-' + capability,
+            lambda: m.Platform.check_capabilities(host, root), 'Only the native bootstrap')
+  subprocess.run(['setcap', '-r', str(root / 'libexec/saildroid-app')], check=True)
+  must_fail('native-bootstrap-missing-capability-refused-' + capability,
+            lambda: m.Platform.check_capabilities(host, root), 'Only the native bootstrap')
+with fixture() as host:
+ root = release(host, 'api28-cap-mismatch', api=28)
+ runtime = m.document(root / 'runtime.json')
+ runtime['native_bootstrap'] = dict(schema='saildroid-native-bootstrap-v1', capabilities='cap_dac_override,cap_sys_resource=ep')
+ (root / 'runtime.json').write_text(json.dumps(runtime))
+ subprocess.run(['setcap', 'cap_sys_resource=ep', str(root / 'libexec/saildroid-app')], check=True)
+ must_fail('native-bootstrap-declared-capability-mismatch-refused',
+           lambda: m.Platform.check_capabilities(host, root), 'Only the native bootstrap')
+for policy in (
+ {'schema': 'unknown', 'capabilities': 'cap_sys_resource=ep'},
+ {'schema': 'saildroid-native-bootstrap-v1', 'capabilities': 'cap_dac_override=ep'},
+ {'schema': 'saildroid-native-bootstrap-v1', 'capabilities': 'cap_sys_resource,cap_net_bind_service=ep'},
+ {'schema': 'saildroid-native-bootstrap-v1', 'capabilities': 'cap_sys_resource=ep', 'path': 'libexec/saildroid-host'},
+ {}, 'cap_sys_resource=ep',
+):
+ must_fail('unsupported-native-bootstrap-policy-refused-' + json.dumps(policy),
+           lambda: m.native_bootstrap_capability({'native_bootstrap': policy}),
+           'Unsupported native bootstrap capability policy')
 if args.legacy_bootstrap_root:
  # Exercise actual getcap output from real, never-executed native bootstrap
  # copies. The VM's local temporary filesystem preserves security.capability.

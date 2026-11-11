@@ -135,6 +135,83 @@ static GVariant *mce(const std::string &method) {
   }
   return r;
 }
+static GDBusConnection *wake_lock_bus() {
+  static GDBusConnection *bus = [] {
+    GError *failure = nullptr;
+    auto *value = g_bus_get_sync(G_BUS_TYPE_SYSTEM, nullptr, &failure);
+    if (!value) {
+      std::string message = failure ? failure->message : "Wake lock bus unavailable";
+      g_clear_error(&failure);
+      throw std::runtime_error(message);
+    }
+    return value;
+  }();
+  return bus;
+}
+static GVariant *wake_lock_request(const char *method, GVariant *arguments,
+                                  const GVariantType *type) {
+  GError *failure = nullptr;
+  auto *reply = g_dbus_connection_call_sync(
+      wake_lock_bus(), "com.nokia.mce", "/com/nokia/mce/request",
+      "com.nokia.mce.request", method, arguments, type,
+      G_DBUS_CALL_FLAGS_NONE, 1000, nullptr, &failure);
+  if (!reply) {
+    std::string message = failure ? failure->message : "MCE wake lock request failed";
+    g_clear_error(&failure);
+    throw std::runtime_error(message);
+  }
+  return reply;
+}
+static void wake_lock_session(const char *method, const std::string &session) {
+  auto *reply = wake_lock_request(method, g_variant_new("(s)", session.c_str()), G_VARIANT_TYPE("(b)"));
+  gboolean accepted = false;
+  g_variant_get(reply, "(b)", &accepted);
+  g_variant_unref(reply);
+  if (!accepted) throw std::runtime_error("MCE wake lock session rejected");
+}
+static void wake_lock_screen(const char *method) {
+  auto *reply = wake_lock_request(method, nullptr, G_VARIANT_TYPE_UNIT);
+  g_variant_unref(reply);
+}
+extern "C" JNIEXPORT jint JNICALL
+Java_org_saildroid_host_HostApi_acquireWakeLock(JNIEnv *env, jclass,
+                                             jstring value, jboolean screen,
+                                             jboolean renewing) {
+  std::string session;
+  bool started = false;
+  try {
+    session = text(env, value);
+    auto *reply = wake_lock_request("req_cpu_keepalive_period", g_variant_new("(s)", session.c_str()), G_VARIANT_TYPE("(i)"));
+    gint32 period = 0;
+    g_variant_get(reply, "(i)", &period);
+    g_variant_unref(reply);
+    if (period <= 0) throw std::runtime_error("MCE wake lock period unavailable");
+    wake_lock_session("req_cpu_keepalive_start", session);
+    started = true;
+    if (screen) wake_lock_screen("req_display_blanking_pause");
+    return period;
+  } catch (const std::exception &failure) {
+    if (started && !renewing) {
+      try { wake_lock_session("req_cpu_keepalive_stop", session); }
+      catch (const std::exception &cleanup) {
+        fprintf(stderr, "SDPOWER=wake_lock_cleanup_failed|reason=%s\n", cleanup.what());
+      }
+    }
+    error(env, failure);
+    return 0;
+  }
+}
+extern "C" JNIEXPORT void JNICALL
+Java_org_saildroid_host_HostApi_releaseWakeLock(JNIEnv *env, jclass,
+                                             jstring value, jboolean cancel_screen) {
+  try {
+    std::string session = text(env, value);
+    if (cancel_screen) wake_lock_screen("req_display_cancel_blanking_pause");
+    wake_lock_session("req_cpu_keepalive_stop", session);
+  } catch (const std::exception &failure) {
+    error(env, failure);
+  }
+}
 extern "C" JNIEXPORT jstring JNICALL
 Java_org_saildroid_host_HostApi_mceString(JNIEnv *e, jclass, jstring method) {
   try {

@@ -28,7 +28,7 @@ public final class SdPackageManagerService implements InvocationHandler {
         if(runner==null)return PackageManager.PERMISSION_DENIED;
         return new SdAppPermissions(runner.sourceDir,owner).holds(name)?PackageManager.PERMISSION_GRANTED:PackageManager.PERMISSION_DENIED;
     }
-    private static ProviderInfo provider(String authority){for(PackageParser.Provider p:SdApkPackage.parsed().providers)if(p.info.authority!=null&&Arrays.asList(p.info.authority.split(";")).contains(authority)){ProviderInfo result=new ProviderInfo(p.info);result.applicationInfo=SdApkPackage.applicationInfo();result.metaData=p.metaData;return result;}return null;}
+    private static ProviderInfo provider(String authority){if(SdDocumentsProvider.AUTHORITY.equals(authority))return SdDocumentsProvider.info();for(PackageParser.Provider p:SdApkPackage.parsed().providers)if(p.info.authority!=null&&Arrays.asList(p.info.authority.split(";")).contains(authority)){ProviderInfo result=new ProviderInfo(p.info);result.applicationInfo=SdApkPackage.applicationInfo();result.metaData=p.metaData;return result;}return null;}
     private static PackageParser.Package platform;
     private static synchronized PermissionInfo permissionInfo(String name,int flags)throws Exception{
         if(name==null)throw new IllegalArgumentException("Permission name required");
@@ -39,6 +39,9 @@ public final class SdPackageManagerService implements InvocationHandler {
     }
     @Override public Object invoke(Object proxy,Method method,Object[] a)throws Throwable{
         String n=method.getName();if(n.equals("asBinder"))return binder;if(n.equals("toString"))return "SailDroid APK package service";if(n.equals("hashCode"))return System.identityHashCode(proxy);if(n.equals("equals"))return proxy==a[0];
+        // This runtime starts installed APKs in normal mode and has no
+        // Android system-server safe-mode boot transition.
+        if(n.equals("isSafeMode"))return false;
         if(n.equals("getApplicationInfo"))return app((String)a[0]);if(n.equals("getPackageInfo"))return info((String)a[0],(Integer)a[1]);
         if(n.equals("notifyPackageUse")){
             if(!SdApkPackage.NAME.equals(a[0])&&SdInstrumentation.applicationInfo((String)a[0])==null)throw new SecurityException("Usage package mismatch");
@@ -54,6 +57,14 @@ public final class SdPackageManagerService implements InvocationHandler {
         if(n.equals("getPackageGids")){if(app((String)a[0])==null)return null;String groups=new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("/proc/self/status")),"UTF-8");for(String line:groups.split("\n"))if(line.startsWith("Groups:")){String value=line.substring(7).trim();if(value.isEmpty())return new int[0];String[] parts=value.split("\\s+");int[] ids=new int[parts.length];for(int i=0;i<parts.length;i++)ids[i]=Integer.parseInt(parts[i]);return ids;}throw new IllegalStateException("Process group information unavailable");}
         if(n.equals("checkPermission"))return permission((String)a[0],(String)a[1]);
         if(n.equals("checkUidPermission"))return (Integer)a[1]==Process.myUid()?permission((String)a[0],SdApkPackage.NAME):PackageManager.PERMISSION_DENIED;
+        if(n.equals("shouldShowRequestPermissionRationale")){
+            if((Integer)a[2]!=Process.myUid()/100000)throw new SecurityException("Cross-user permission rationale query unavailable");
+            if(!SdApkPackage.NAME.equals(a[1])&&SdInstrumentation.applicationInfo((String)a[1])==null)throw new SecurityException("Permission rationale package mismatch");
+            if(!SdApkPackage.NAME.equals(a[1]))return false;
+            if(permissions==null)permissions=new SdAppPermissions(SdApkPackage.APK,SdApkPackage.NAME);
+            boolean result=permissions.shouldShowRationale((String)a[0]);
+            System.err.println("SDPERMISSION=rationale|permission="+a[0]+"|result="+result);return result;
+        }
         if(n.equals("isPackageAvailable"))return app((String)a[0])!=null;
         if(n.equals("isInstantApp")){
             if((Integer)a[1]!=Process.myUid()/100000)throw new SecurityException("Cross-user instant application query unavailable");
@@ -74,6 +85,12 @@ public final class SdPackageManagerService implements InvocationHandler {
         if(n.equals("resolveIntent")){List<ResolveInfo> results=SdApkPackage.resolveActivities((Intent)a[0],(String)a[1],(Integer)a[2]);return results.isEmpty()?null:results.get(0);}
         if(n.equals("resolveContentProvider"))return provider((String)a[0]);
         if(n.equals("getInstalledPackages"))return new ParceledListSlice<PackageInfo>(Arrays.asList(info(SdApkPackage.NAME,(Integer)a[0]),info("android",(Integer)a[0])));
+        if(n.equals("getPackagesHoldingPermissions")){
+            if((Integer)a[2]!=Process.myUid()/100000)throw new SecurityException("Cross-user permission inventory unavailable");
+            ArrayList<PackageInfo> result=new ArrayList<PackageInfo>();
+            for(String name:(String[])a[0])if(permission(name,SdApkPackage.NAME)==PackageManager.PERMISSION_GRANTED){result.add(info(SdApkPackage.NAME,(Integer)a[1]));break;}
+            return new ParceledListSlice<PackageInfo>(result);
+        }
         if(n.equals("getInstalledApplications"))return new ParceledListSlice<ApplicationInfo>(Arrays.asList(app(SdApkPackage.NAME),app("android")));
         if(n.equals("getApplicationEnabledSetting")){ApplicationInfo app=app((String)a[0]);if(app==null)throw new IllegalArgumentException("Unknown package");return app.enabled?PackageManager.COMPONENT_ENABLED_STATE_DEFAULT:PackageManager.COMPONENT_ENABLED_STATE_DISABLED;}
         if(n.equals("getComponentEnabledSetting")){
@@ -86,9 +103,21 @@ public final class SdPackageManagerService implements InvocationHandler {
             System.err.println("SDPACKAGE=component_state|class="+component.getClassName()+"|state=default");
             return PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
         }
-        if(n.equals("hasSystemFeature"))return false; // No optional Android hardware feature has a host backend yet.
+        if(n.equals("hasSystemFeature")){
+            String feature=(String)a[0];
+            if ("android.hardware.microphone".equals(feature)) return (Integer)a[1] == 0 && SdAudio.recordingAvailable();
+            if((Integer)a[1]!=0||!("android.hardware.camera".equals(feature)||"android.hardware.camera.any".equals(feature)||"android.hardware.camera.front".equals(feature))||!SdCamera.available())return false;
+            if("android.hardware.camera.any".equals(feature))return true;
+            int facing="android.hardware.camera.front".equals(feature)?android.hardware.Camera.CameraInfo.CAMERA_FACING_FRONT:android.hardware.Camera.CameraInfo.CAMERA_FACING_BACK;
+            for(int index=0;index<android.hardware.Camera.getNumberOfCameras();index++){
+                android.hardware.Camera.CameraInfo info=new android.hardware.Camera.CameraInfo();android.hardware.Camera.getCameraInfo(index,info);
+                if(info.facing==facing)return true;
+            }
+            return false;
+        }
         if(n.equals("getSystemAvailableFeatures"))return new ParceledListSlice<FeatureInfo>(Collections.<FeatureInfo>emptyList());
         if(n.equals("getInstallerPackageName"))return app((String)a[0])==null?null:"org.saildroid.manager";
+        if(n.equals("getPermissionControllerPackageName"))return SdActivityHost.PERMISSION_CONTROLLER_PACKAGE;
         if(n.equals("isPackageSuspendedForUser")){if(app((String)a[0])==null)throw new IllegalArgumentException("Unknown package");return false;}
         throw SdRuntimeDiagnostics.unsupported("APK package service",method);
     }

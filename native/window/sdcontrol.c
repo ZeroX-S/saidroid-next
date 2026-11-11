@@ -45,13 +45,22 @@ void sd_control_install(JNIEnv *e){
         {"nativeApplyTransaction","(JZ)V",apply_transaction},{"nativeMergeTransaction","(JJ)V",merge_transaction},
         {"nativeSetPosition","(JJFF)V",position},{"nativeSetSize","(JJII)V",size},{"nativeSetLayer","(JJI)V",layer},
         {"nativeSetAlpha","(JJF)V",alpha},{"nativeSetFlags","(JJII)V",flags},{"nativeSetMatrix","(JJFFFF)V",matrix},
-        {"nativeSetWindowCrop","(JJIIII)V",crop},{"nativeCopyFromSurfaceControl","(J)J",copy_control},
-        {"nativeRelease","(J)V",release_control},{"nativeDestroy","(J)V",destroy_control},{"nativeGetHandle","(J)Landroid/os/IBinder;",get_handle},
-        {"nativeGetProtectedContentSupport","()Z",protected_support}};
+        {"nativeSetWindowCrop","(JJIIII)V",crop},
+        {"nativeRelease","(J)V",release_control},{"nativeDestroy","(J)V",destroy_control},{"nativeGetHandle","(J)Landroid/os/IBinder;",get_handle}};
     if((*e)->RegisterNatives(e,(*e)->FindClass(e,"android/view/SurfaceControl"),control_methods,sizeof(control_methods)/sizeof(control_methods[0]))<0)return;
+    jclass version=(*e)->FindClass(e,"android/os/Build$VERSION");if(!version)return;
+    jfieldID sdk=(*e)->GetStaticFieldID(e,version,"SDK_INT","I");if(!sdk)return;
+    jint api=(*e)->GetStaticIntField(e,version,sdk);(*e)->DeleteLocalRef(e,version);
+    if(api>=29){
+        JNINativeMethod modern_controls[]={{"nativeCopyFromSurfaceControl","(J)J",copy_control},
+            {"nativeGetProtectedContentSupport","()Z",protected_support}};
+        if((*e)->RegisterNatives(e,(*e)->FindClass(e,"android/view/SurfaceControl"),modern_controls,2)<0)return;
+    }
     JNINativeMethod surface_methods[]={
-        {"nativeCreateFromSurfaceControl","(J)J",create_surface_from_control},{"nativeGetFromSurfaceControl","(JJ)J",surface_from_control},
+        {"nativeCreateFromSurfaceControl","(J)J",create_surface_from_control},
         {"nativeGetNextFrameNumber","(J)J",frame_number},{"nativeSetSharedBufferModeEnabled","(JZ)I",shared_mode},
         {"nativeSetAutoRefreshEnabled","(JZ)I",shared_mode}};
-    (*e)->RegisterNatives(e,(*e)->FindClass(e,"android/view/Surface"),surface_methods,sizeof(surface_methods)/sizeof(surface_methods[0]));
+    if((*e)->RegisterNatives(e,(*e)->FindClass(e,"android/view/Surface"),surface_methods,sizeof(surface_methods)/sizeof(surface_methods[0]))<0)return;
+    JNINativeMethod from_control={"nativeGetFromSurfaceControl",api>=29?"(JJ)J":"(J)J",api>=29?(void*)surface_from_control:(void*)create_surface_from_control};
+    (*e)->RegisterNatives(e,(*e)->FindClass(e,"android/view/Surface"),&from_control,1);
 }

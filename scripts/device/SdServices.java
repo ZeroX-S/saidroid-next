@@ -33,11 +33,12 @@ public final class SdServices {
         }
         activityManager.installFrameworkCache();
         register("activity", activityManager.asBinder());
-        register("activity_task", SdActivityTaskManager.binder());
         register("package", SdPackageManagerService.binder());
         register("window", SdWindowManager.binder());
         register("input", SdInputManager.binder());
         register("input_method", SdInputMethods.binder());
+        register("textservices", SdTextServices.binder());
+        register("appwidget", SdAppWidgets.binder());
         register("display", SdDisplayShim.binder());
         register("mount", SdStorageManager.binder());
         register("user", SdUsers.binder());
@@ -65,6 +66,14 @@ public final class SdServices {
     }
 
     public static SdActivityManagerService activityManager(){if(!installed)throw new IllegalStateException("Services not installed");return activityManager;}
+
+    static void notifyTimeZoneChanged(String identifier) throws Exception {
+        if (!installed) return;
+        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_TIMEZONE_CHANGED);
+        intent.putExtra("time-zone", identifier);
+        activityManager.deliverBroadcast(intent, null, 0, null, null, null,
+                android.os.Process.myUid() / 100000, false);
+    }
 
     public static void bindApplication(android.content.pm.ApplicationInfo info) {
         if (!installed) throw new IllegalStateException("Services are not installed");

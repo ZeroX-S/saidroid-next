@@ -101,8 +101,8 @@ static fs::path own_root() {
   auto root = fs::canonical("/proc/self/exe").parent_path().parent_path();
   trusted(root);
   trusted(root / "runtime.json");
-  if (read_json(root / "runtime.json").at("api") != 29)
-    throw std::runtime_error("API29 required");
+  if (read_json(root / "runtime.json").at("api") != 28)
+    throw std::runtime_error("API28 required");
   return root;
 }
 static void permissions() {
@@ -140,9 +140,12 @@ static void environment(const fs::path &root) {
   env("SD_BUILD_PROP", root / "build.prop");
   env("BIONIC_TRANSLATION_CONFIG_DIR", root / "linker-config");
   env("SAILDROID_STRICT_LINK", "1");
-  std::string preload;
+  // The Android linker resolves allocator/mapper hooks while loading libui.
+  // Publish the component's gralloc wrappers before that first resolution.
+  trusted(root / "lib/libsdtexture-host.so");
+  std::string preload = (root / "lib/libsdtexture-host.so").string() + ":";
   if (fs::exists(root / "lib/libpthread_bio.so.0"))
-    preload = (root / "lib/libpthread_bio.so.0").string() + ":";
+    preload += (root / "lib/libpthread_bio.so.0").string() + ":";
   if (fs::exists(root / "lib/libsdstrictmath-fdlibm.so")) {
     trusted(root / "lib/libsdstrictmath-fdlibm.so");
     preload += (root / "lib/libsdstrictmath-fdlibm.so").string() + ":";
@@ -220,7 +223,8 @@ static void connect_manager(const fs::path &root) {
     if (!g_spawn_async(nullptr, av, nullptr,
                        (GSpawnFlags)(G_SPAWN_STDOUT_TO_DEV_NULL |
                                      G_SPAWN_STDERR_TO_DEV_NULL),
-                       nullptr, nullptr, nullptr, &e)) {
+                       [](gpointer) { if (setsid() < 0) _exit(127); },
+                       nullptr, nullptr, &e)) {
       close(guard);
       throw std::runtime_error(e ? e->message : "Cannot start manager");
     }
@@ -336,10 +340,10 @@ int main(int argc, char **argv) {
       throw std::runtime_error("Desktop identity differs");
     if (!install.empty() && !manager)
       throw std::runtime_error("Only installer accepts APKs");
-    if (!service.empty() && (!valid(service) || process.empty() ||
+    if (!service.empty() && (!valid_component(service) || process.empty() ||
                              (owner.empty() && action.empty())))
       throw std::runtime_error("Service ownership required");
-    if (!activity.empty() && (!valid(activity) || !service.empty() || process.empty() ||
+    if (!activity.empty() && (!valid_component(activity) || !service.empty() || process.empty() ||
                               (owner.empty() && action.empty())))
       throw std::runtime_error("Activity process ownership required");
     if (!install.empty()) {
@@ -366,7 +370,7 @@ int main(int argc, char **argv) {
       if (install.size() > 16000)
         throw std::runtime_error("APK source is too long");
     }
-    if (!provider.empty() && (!valid(provider) || !service.empty() || !activity.empty() || process.empty() ||
+    if (!provider.empty() && (!valid_component(provider) || !service.empty() || !activity.empty() || process.empty() ||
                               (owner.empty() && action.empty())))
       throw std::runtime_error("Provider process ownership required");
     instance =

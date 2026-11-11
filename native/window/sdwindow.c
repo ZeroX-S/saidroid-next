@@ -17,6 +17,7 @@
 #include <time.h>
 #include <errno.h>
 #include <stdatomic.h>
+#include "native-display-events.h"
 void sd_control_install(JNIEnv *env);
 int sd_activation_start(const char *path,int (*request)(void),int (*close_request)(void),int (*open_request)(const char *),int (*dump_request)(void));
 void sd_activation_stop(void);
@@ -56,6 +57,10 @@ void sd_hwui_background_destroy(void);
 int sd_hwui_background_present(void);
 int sd_hwui_background_startup(const char*,int,int);
 static int gpu_first_frame_pending,gpu_parent_mapped,gpu_startup_mapped;
+static uint64_t gpu_present_count;
+static int gpu_timing_enabled(void){static int enabled=-1;if(enabled<0)enabled=getenv("SAILDROID_GPU_TIMING")!=NULL;return enabled;}
+static int64_t gpu_clock_ns(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (int64_t)t.tv_sec*1000000000+t.tv_nsec;}
+
 static int64_t bootstrap_next_ns;
 static unsigned bootstrap_frames;
 static int software_first_frame;
@@ -69,8 +74,9 @@ static int create_gpu_background(void) {
 static _Atomic int selected_hardware=-1;
 static int hardware_mode(void){int value=atomic_load(&selected_hardware);if(value>=0)return value;const char *mode=getenv("SAILDROID_HWUI");return mode&&!strcmp(mode,"1");}
 struct gpu_layer {
-    int id,x,y,width,height,visible,pending,z;
-    unsigned stack_order;
+    int id,x,y,width,height,visible,pending,z,retired;
+    int color_layer,color_pending;uint32_t color;unsigned color_frames;struct color_buffer *color_buffer;
+    unsigned stack_order,retire_epoch;int retire_stage;
     struct wl_surface *surface;
     struct wl_subsurface *subsurface;
     void *window;
@@ -85,12 +91,21 @@ static struct gpu_layer *gpu_layer(int id) {
     struct gpu_layer *p=calloc(1,sizeof(*p));if(!p)return NULL;
     p->id=id;p->width=source_w;p->height=source_h;p->visible=1;p->next=gpu_layers;gpu_layers=p;return p;
 }
-void *sd_window_gpu_display(void){return hardware_mode()?display:NULL;}
+/* A service can initialize EGL before it receives its first Activity. Reserve
+ * one process-owned Wayland connection at that point, without creating or
+ * mapping a toplevel, and reuse it when the first window is started. */
+void *sd_window_gpu_display(void){
+ if(!hardware_mode())return NULL;
+ pthread_mutex_lock(&lock);
+ if(!display){display=wl_display_connect(NULL);if(display)fprintf(stderr,"SDHWUI=headless_display_reserved|toplevel=false\n");}
+ void *result=display;pthread_mutex_unlock(&lock);return result;
+}
 /* Keep a hidden layer's last GPU buffer. Detaching NULL loses its content,
  * and a resumed unchanged HWUI tree need not submit another frame. Moving the
  * subsurface outside the parent preserves that buffer for a correct reveal. */
 void sd_window_gpu_presented(void) {
     pthread_mutex_lock(&lock);
+    if(gpu_timing_enabled()&&gpu_present_count<10000)fprintf(stderr,"SDGPU=swap_done|sequence=%llu|time_ns=%lld\n",(unsigned long long)++gpu_present_count,(long long)gpu_clock_ns());
     if(gpu_parent_mapped||gpu_first_frame_pending){pthread_mutex_unlock(&lock);return;}
     gpu_first_frame_pending=1;pthread_mutex_unlock(&lock);
     if(wake_fd>=0){uint64_t one=1;(void)write(wake_fd,&one,sizeof(one));}
@@ -98,10 +113,60 @@ void sd_window_gpu_presented(void) {
 void sd_window_gpu_z(int id,int z){
  pthread_mutex_lock(&lock);struct gpu_layer *p=gpu_layer(id);if(p&&p->z!=z){p->z=z;p->pending=1;}pthread_mutex_unlock(&lock);wake_host();
 }
+/* A removed SurfaceControl can retain live producer references. Unmap its
+ * compositor role now, keeping its wl_surface / EGL queue valid for those
+ * references. A late swap cannot remap a surface with no role. */
+void sd_window_gpu_retire(int id){
+ pthread_mutex_lock(&lock);struct gpu_layer *p=gpu_layer(id);
+ if(p&&!p->retired){p->retired=1;p->visible=0;p->pending=1;}
+ pthread_mutex_unlock(&lock);wake_host();
+}
+/* Solid SurfaceControl layers have no GLES producer. Use a real wl_shm
+ * buffer for their pixels; camera/HWUI layers keep their existing EGL queues.
+ * Every allocation stays mapped until the compositor releases it. */
+struct color_buffer {struct wl_buffer *buffer;uint32_t *pixels;size_t size;int width,height,busy,current;};
+static void color_buffer_free(struct color_buffer *b){if(!b)return;wl_buffer_destroy(b->buffer);munmap(b->pixels,b->size);free(b);}
+static void color_buffer_release(void *data,struct wl_buffer *buffer){(void)buffer;struct color_buffer *b=data;b->busy=0;if(!b->current)color_buffer_free(b);}
+static const struct wl_buffer_listener color_buffer_listener={color_buffer_release};
+static void color_buffer_drop(struct gpu_layer *p){struct color_buffer *b=p->color_buffer;p->color_buffer=NULL;if(b){b->current=0;if(!b->busy)color_buffer_free(b);}}
+int sd_window_color(int id,float red,float green,float blue){
+ if(id<=0)return -1;
+ pthread_mutex_lock(&lock);struct gpu_layer *p=gpu_layer(id);
+ if(!p||p->retired||p->window){pthread_mutex_unlock(&lock);return -1;}
+ p->color_layer=1;p->color=0xff000000u|((uint32_t)(red*255.f+.5f)<<16)|((uint32_t)(green*255.f+.5f)<<8)|(uint32_t)(blue*255.f+.5f);p->color_pending=1;p->pending=1;
+ pthread_mutex_unlock(&lock);wake_host();return 0;
+}
+static int color_present(struct gpu_layer *p){
+ if(p->width<1||p->height<1||p->width>8192||p->height>8192)return -1;
+ struct color_buffer *b=calloc(1,sizeof(*b));if(!b)return -1;
+ b->width=p->width;b->height=p->height;b->size=(size_t)b->width*b->height*4;
+ int fd=memfd_create("saildroid-solid-layer",MFD_CLOEXEC);if(fd<0){free(b);return -1;}
+ if(ftruncate(fd,b->size)<0){close(fd);free(b);return -1;}
+ b->pixels=mmap(NULL,b->size,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);if(b->pixels==MAP_FAILED){close(fd);free(b);return -1;}
+ struct wl_shm_pool *pool=wl_shm_create_pool(shm,fd,b->size);close(fd);
+ b->buffer=wl_shm_pool_create_buffer(pool,0,b->width,b->height,b->width*4,WL_SHM_FORMAT_ARGB8888);wl_shm_pool_destroy(pool);
+ wl_buffer_add_listener(b->buffer,&color_buffer_listener,b);for(size_t i=0;i<b->size/4;i++)b->pixels[i]=p->color;
+ if(!p->surface){p->surface=wl_compositor_create_surface(compositor);p->subsurface=wl_subcompositor_get_subsurface(subcompositor,p->surface,surface);p->stack_order=++gpu_stack_order;wl_subsurface_set_desync(p->subsurface);}
+ color_buffer_drop(p);p->color_buffer=b;b->current=1;b->busy=1;
+ wl_surface_attach(p->surface,b->buffer,0,0);wl_surface_damage(p->surface,0,0,b->width,b->height);wl_surface_commit(p->surface);p->color_pending=0;p->color_frames++;
+ fprintf(stderr,"SDSURFACEVIEW=color_shm|id=%d|frame=%u|size=%dx%d|egl_queue=false\n",p->id,p->color_frames,b->width,b->height);return 0;
+}
+/* Keep retired child roles outside the parent until connection teardown.
+ * A frame callback is a pacing event, not a GPU texture lifetime fence. Legacy
+ * Qt/Adreno may still reference imported textures after that callback. */
 static void gpu_apply_layout(void) {
     if(!hardware_mode())return;
     int changed=0;
+    for(struct gpu_layer *p=gpu_layers;p;p=p->next)if(p->color_layer&&!p->retired&&p->color_pending){if(color_present(p)!=0){fprintf(stderr,"SDSURFACEVIEW=color_shm_failed|id=%d\n",p->id);_exit(125);}p->pending=1;}
     for(struct gpu_layer *p=gpu_layers;p;p=p->next)if(p->pending&&p->surface){
+        if(p->retired){
+            if(p->subsurface)wl_subsurface_set_position(p->subsurface,-4*source_w,-4*source_h);
+            if(p->retire_stage==0){
+                p->retire_stage=3;
+                fprintf(stderr,"SDHWUI=layer_retired|id=%d|producer_queue=retained|compositor_role=offscreen-until-disconnect\n",p->id);
+            }
+            p->pending=0;changed=1;continue;
+        }
         if(p->subsurface)wl_subsurface_set_position(p->subsurface,p->visible?p->x:-4*source_w,p->visible?p->y:-4*source_h);
         if(p->window){
             void (*resize)(void*,int,int,int,int)=dlsym(RTLD_DEFAULT,"wl_egl_window_resize");
@@ -126,7 +191,7 @@ static void gpu_apply_layout(void) {
         struct gpu_layer *previous=NULL;size_t used=0;int reorder=0;
         for(;;){struct gpu_layer *next=NULL;
             for(struct gpu_layer *p=gpu_layers;p;p=p->next){
-                if(!p->subsurface)continue;
+                if(!p->subsurface||p->retired)continue;
                 if(previous&&(p->z<previous->z||(p->z==previous->z&&p->id<=previous->id)))continue;
                 if(!next||p->z<next->z||(p->z==next->z&&p->id<next->id))next=p;
             }
@@ -140,15 +205,22 @@ static void gpu_apply_layout(void) {
          * EGL window and GPU buffer queue remain the same. Qt creates its child
          * views in role creation order, with no compositor or renderer restart. */
         if(legacy_subsurface_stack&&reorder){
-            for(size_t i=0;i<used;i++){wl_subsurface_destroy(ordered[i]->subsurface);ordered[i]->subsurface=NULL;}
-            for(size_t i=0;i<used;i++){
+            /* Keep the longest desired prefix already in creation order.
+             * Removing/re-appending only its suffix yields the required order,
+             * and preserves live SurfaceView roles/queues in the prefix while
+             * their render threads are submitting buffers. Recreating every
+             * role needlessly tears down those active compositor views. */
+            size_t keep=used?1:0;
+            while(keep<used&&ordered[keep-1]->stack_order<ordered[keep]->stack_order)keep++;
+            for(size_t i=keep;i<used;i++){wl_subsurface_destroy(ordered[i]->subsurface);ordered[i]->subsurface=NULL;}
+            for(size_t i=keep;i<used;i++){
                 struct gpu_layer *p=ordered[i];
                 p->subsurface=wl_subcompositor_get_subsurface(subcompositor,p->surface,surface);
                 p->stack_order=++gpu_stack_order;
                 wl_subsurface_set_desync(p->subsurface);
                 wl_subsurface_set_position(p->subsurface,p->visible?p->x:-4*source_w,p->visible?p->y:-4*source_h);
                 wl_surface_commit(p->surface);
-                fprintf(stderr,"SDHWUI=layer_restack|id=%d|z=%d|mode=qt-role-order\n",p->id,p->z);
+                fprintf(stderr,"SDHWUI=layer_restack|id=%d|z=%d|mode=qt-role-order|retained_prefix=%zu\n",p->id,p->z,keep);
             }
         }else if(!legacy_subsurface_stack){
             for(size_t i=0;i<used;i++)wl_subsurface_place_above(ordered[i]->subsurface,i?ordered[i-1]->surface:surface);
@@ -161,21 +233,24 @@ static void gpu_apply_layout(void) {
 }
 void sd_window_gpu_layout(int id,int x,int y,int w,int h,int visible) {
     pthread_mutex_lock(&lock);struct gpu_layer *p=gpu_layer(id);
-    if(p){p->x=x;p->y=y;p->width=w;p->height=h;p->visible=visible;p->pending=1;}
+    if(p){if(p->color_layer&&(p->width!=w||p->height!=h))p->color_pending=1;p->x=x;p->y=y;p->width=w;p->height=h;p->visible=p->retired?0:visible;p->pending=1;}
     pthread_mutex_unlock(&lock);
     if(wake_fd>=0){uint64_t one=1;(void)write(wake_fd,&one,sizeof(one));}
 }
 void *sd_window_gpu_window(int id){
     if(!hardware_mode()||id<1||!surface)return NULL;
     pthread_mutex_lock(&lock);struct gpu_layer *p=gpu_layer(id);
+    if(p&&p->color_layer){pthread_mutex_unlock(&lock);return NULL;}
     if(p&&!p->window){
         void *library=dlopen("libwayland-egl.so.1",RTLD_NOW|RTLD_GLOBAL);
         void *(*create)(struct wl_surface*,int,int)=library?dlsym(library,"wl_egl_window_create"):NULL;
         if(subcompositor){
             p->surface=wl_compositor_create_surface(compositor);
-            p->subsurface=wl_subcompositor_get_subsurface(subcompositor,p->surface,surface);p->stack_order=++gpu_stack_order;p->pending=1;
-            wl_subsurface_set_desync(p->subsurface);
-            wl_subsurface_set_position(p->subsurface,p->x,p->y);
+            if(!p->retired){
+                p->subsurface=wl_subcompositor_get_subsurface(subcompositor,p->surface,surface);p->stack_order=++gpu_stack_order;p->pending=1;
+                wl_subsurface_set_desync(p->subsurface);
+                wl_subsurface_set_position(p->subsurface,p->x,p->y);
+            }
             wl_surface_commit(surface);
         }
         if(create&&p->surface)p->window=create(p->surface,p->width,p->height);
@@ -186,6 +261,8 @@ void *sd_window_gpu_window(int id){
 static struct xdg_wm_base *shell;
 static struct xdg_surface *xdg_surface;
 static struct xdg_toplevel *toplevel;
+static struct wl_shell *native_shell;
+static struct wl_shell_surface *native_shell_surface;
 static struct qt_surface_extension *surface_extension;
 static struct qt_extended_surface *extended_surface;
 static struct wl_callback *frame_callback;
@@ -207,6 +284,10 @@ static void force_commit_init(void){
     force_commit_mode=0;
 }
 struct buffer{struct wl_buffer*object;uint32_t*pixels;size_t size;int busy;int ready;int reserved;int src_w,src_h;int64_t perf_sample;};
+static struct buffer cover_buffers[2];
+static uint32_t *cover_pixels;
+static int cover_width,cover_height,cover_pending;
+
 /* Direct-to-shm mode (SAILDROID_DIRECT_SHM=1): the UI thread copies the Java pixel
    array straight into the spare wl_shm buffer instead of into a staging array that
    the window thread then copies again. Same output, one full-screen copy less. The
@@ -464,18 +545,25 @@ static void ping(void*d,struct xdg_wm_base*s,uint32_t serial){(void)d;xdg_wm_bas
 static const struct xdg_wm_base_listener shell_listener={.ping=ping};
 static void configure_surface(void*d,struct xdg_surface*s,uint32_t serial){(void)d;xdg_surface_ack_configure(s,serial);configured=1;}
 static const struct xdg_surface_listener surface_listener={.configure=configure_surface};
-static void configure_top(void *data, struct xdg_toplevel *top, int32_t w,
-                          int32_t h, struct wl_array *states) {
-    (void)data;
-    (void)top;
+static void configure_dimensions(int32_t w, int32_t h) {
     if (!width) {
         width = w > 0 ? w : (source_w > 0 ? source_w : 1080);
         height = h > 0 ? h : (source_h > 0 ? source_h : 2160);
     }
+}
+static void configure_top(void *data, struct xdg_toplevel *top, int32_t w,
+                          int32_t h, struct wl_array *states) {
+    (void)data;
+    (void)top;
+    configure_dimensions(w, h);
     uint32_t *state;
-    int active = 0;
-    wl_array_for_each(state, states)
+    int active = 0, fullscreen = 0;
+    wl_array_for_each(state, states) {
         if (*state == XDG_TOPLEVEL_STATE_ACTIVATED) active = 1;
+        if (*state == XDG_TOPLEVEL_STATE_FULLSCREEN) fullscreen = 1;
+    }
+    fprintf(stderr,"SDWINDOW=configure|size=%dx%d|fullscreen=%s|active=%s\n",w,h,
+            fullscreen?"true":"false",active?"true":"false");
     if (!keyboard_focus_known && active != last_xdg_active) emit_focus(active);
     last_xdg_active = active;
 }
@@ -503,6 +591,51 @@ static int prepare_display(void) {
 }
 static void close_top(void*d,struct xdg_toplevel*t){(void)d;(void)t;request_close();}
 static const struct xdg_toplevel_listener top_listener={.configure=configure_top,.close=close_top};
+static void native_shell_ping(void *data, struct wl_shell_surface *role, uint32_t serial) {
+    (void)data;
+    wl_shell_surface_pong(role, serial);
+}
+static void native_shell_configure(void *data, struct wl_shell_surface *role,
+                                   uint32_t edges, int32_t w, int32_t h) {
+    (void)data;
+    (void)role;
+    (void)edges;
+    configure_dimensions(w, h);
+    configured = 1;
+    fprintf(stderr, "SDWINDOW=configure|shell=wl_shell|size=%dx%d|fullscreen=requested\n", w, h);
+}
+static void native_shell_popup_done(void *data, struct wl_shell_surface *role) {
+    (void)data;
+    (void)role;
+}
+static const struct wl_shell_surface_listener native_shell_listener = {
+    .ping = native_shell_ping,
+    .configure = native_shell_configure,
+    .popup_done = native_shell_popup_done
+};
+static void create_window_role(void) {
+    // Lipstick's native wrapper fills the display. Its desktop XDG wrapper
+    // adds corner/cutout avoidance and applies the desktop window scale.
+    if (surface_extension && native_shell) {
+        native_shell_surface = wl_shell_get_shell_surface(native_shell, surface);
+        wl_shell_surface_add_listener(native_shell_surface, &native_shell_listener, NULL);
+        wl_shell_surface_set_title(native_shell_surface, title);
+        wl_shell_surface_set_class(native_shell_surface, app_id);
+        wl_shell_surface_set_toplevel(native_shell_surface);
+        wl_shell_surface_set_fullscreen(native_shell_surface,
+                WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT, 0, NULL);
+        fprintf(stderr, "SDWINDOW=role|shell=wl_shell|wrapper=native\n");
+    } else {
+        xdg_surface = xdg_wm_base_get_xdg_surface(shell, surface);
+        xdg_surface_add_listener(xdg_surface, &surface_listener, NULL);
+        toplevel = xdg_surface_get_toplevel(xdg_surface);
+        xdg_toplevel_add_listener(toplevel, &top_listener, NULL);
+        xdg_toplevel_set_title(toplevel, title);
+        xdg_toplevel_set_app_id(toplevel, app_id);
+        xdg_toplevel_set_fullscreen(toplevel, NULL);
+        fprintf(stderr, "SDWINDOW=role|shell=xdg_shell|fullscreen_requested=true\n");
+    }
+}
 /* 输入链路取证（同 `<clinit>` 一样属于"不许靠猜"的地方）：Wayland 触摸到底有没有被
    合成器投递到我们这个表面？以前只有代码路径没有证据，点了没反应只能靠推断。
    这行打在 su!=surface 的早退之前，所以"匹配失败"和"根本没收到"能被区分开。 */
@@ -569,13 +702,13 @@ static uint32_t buffer_format(void){
     if(!abgr_buffers())return WL_SHM_FORMAT_ARGB8888;
     return shm_has_abgr8888?WL_SHM_FORMAT_ABGR8888:WL_SHM_FORMAT_XBGR8888;
 }
-static void global(void*d,struct wl_registry*r,uint32_t name,const char*iface,uint32_t version){(void)d;if(!strcmp(iface,"wl_subcompositor")){subcompositor=wl_registry_bind(r,name,&wl_subcompositor_interface,1);return;}if(!strcmp(iface,"wl_compositor"))compositor=wl_registry_bind(r,name,&wl_compositor_interface,version<3?version:3);else if(!strcmp(iface,"wl_shm")){shm=wl_registry_bind(r,name,&wl_shm_interface,1);wl_shm_add_listener(shm,&shm_listener,NULL);}else if(!strcmp(iface,"xdg_wm_base")){shell=wl_registry_bind(r,name,&xdg_wm_base_interface,1);xdg_wm_base_add_listener(shell,&shell_listener,NULL);}else if(!strcmp(iface,"qt_surface_extension")){surface_extension=wl_registry_bind(r,name,&qt_surface_extension_interface,1);legacy_subsurface_stack=getenv("SAILDROID_SUBSURFACE_NATIVE_STACK")==NULL;}else if(!strcmp(iface,"wl_seat")){seat=wl_registry_bind(r,name,&wl_seat_interface,version<3?version:3);wl_seat_add_listener(seat,&seat_listener,NULL);}}
+static void global(void*d,struct wl_registry*r,uint32_t name,const char*iface,uint32_t version){(void)d;if(!strcmp(iface,"wl_subcompositor")){subcompositor=wl_registry_bind(r,name,&wl_subcompositor_interface,1);return;}if(!strcmp(iface,"wl_compositor"))compositor=wl_registry_bind(r,name,&wl_compositor_interface,version<3?version:3);else if(!strcmp(iface,"wl_shm")){shm=wl_registry_bind(r,name,&wl_shm_interface,1);wl_shm_add_listener(shm,&shm_listener,NULL);}else if(!strcmp(iface,"wl_shell")){native_shell=wl_registry_bind(r,name,&wl_shell_interface,1);}else if(!strcmp(iface,"xdg_wm_base")){shell=wl_registry_bind(r,name,&xdg_wm_base_interface,1);xdg_wm_base_add_listener(shell,&shell_listener,NULL);}else if(!strcmp(iface,"qt_surface_extension")){surface_extension=wl_registry_bind(r,name,&qt_surface_extension_interface,1);legacy_subsurface_stack=getenv("SAILDROID_SUBSURFACE_NATIVE_STACK")==NULL;}else if(!strcmp(iface,"wl_seat")){seat=wl_registry_bind(r,name,&wl_seat_interface,version<3?version:3);wl_seat_add_listener(seat,&seat_listener,NULL);}}
 static void global_remove(void*d,struct wl_registry*r,uint32_t name){(void)d;(void)r;(void)name;}
 static const struct wl_registry_listener registry_listener={global,global_remove};
-static void buffer_released(void*data,struct wl_buffer*b){(void)b;struct buffer*slot=(struct buffer*)data;if(perf_on&&slot->perf_sample>=0&&(size_t)slot->perf_sample<perf_count)perf_samples[slot->perf_sample].release_ns=monotonic_ns();slot->busy=0;}
+static void buffer_released(void*data,struct wl_buffer*b){(void)b;struct buffer*slot=(struct buffer*)data;if(perf_on&&slot->perf_sample>=0&&(size_t)slot->perf_sample<perf_count)perf_samples[slot->perf_sample].release_ns=monotonic_ns();slot->busy=0;if(cover_pending&&(slot==&cover_buffers[0]||slot==&cover_buffers[1]))wake_host();}
 static const struct wl_buffer_listener buffer_listener={buffer_released};
 static int allocate_buffer(struct buffer*b){int fd=memfd_create("saildroid-window",MFD_CLOEXEC);if(fd<0)return-1;b->size=(size_t)width*height*4;if(ftruncate(fd,b->size)<0){close(fd);return-1;}b->pixels=mmap(NULL,b->size,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);if(b->pixels==MAP_FAILED){close(fd);return-1;}struct wl_shm_pool*pool=wl_shm_create_pool(shm,fd,b->size);b->object=wl_shm_pool_create_buffer(pool,0,width,height,width*4,buffer_format());wl_shm_pool_destroy(pool);close(fd);wl_buffer_add_listener(b->object,&buffer_listener,b);for(size_t i=0;i<b->size/4;i++)b->pixels[i]=swizzle_if_needed(0xff101820);b->perf_sample=-1;return 0;}
-static void frame_complete(void*d,struct wl_callback*callback,uint32_t time){(void)d;(void)time;wl_callback_destroy(callback);frame_callback=NULL;int64_t now=monotonic_ns();if(perf_on){perf_frame_callbacks++;perf_last_vsync_ns=now;perf_commits_since_vsync=0;perf_frame_gap_ns=perf_prev_frame_ns?now-perf_prev_frame_ns:-1;perf_prev_frame_ns=now;}if(callbacks_available()){(*thread_env)->CallStaticVoidMethod(thread_env,host_class,frame_done,(jlong)now);check_callback();}}
+static void frame_complete(void*d,struct wl_callback*callback,uint32_t time){(void)d;(void)time;wl_callback_destroy(callback);frame_callback=NULL;int64_t now=monotonic_ns();if(perf_on){perf_frame_callbacks++;perf_last_vsync_ns=now;perf_commits_since_vsync=0;perf_frame_gap_ns=perf_prev_frame_ns?now-perf_prev_frame_ns:-1;perf_prev_frame_ns=now;}sd_native_display_frame(now);if(callbacks_available()){(*thread_env)->CallStaticVoidMethod(thread_env,host_class,frame_done,(jlong)now);check_callback();}}
 static const struct wl_callback_listener frame_listener={frame_complete};
 static void publish(void){
  if(callbacks_available()&&early_window==1){
@@ -591,6 +724,25 @@ static void publish(void){
   fprintf(stderr,"SDHOST=backend_handoff|target=software|same_surface=true\n");
  }
  gpu_apply_layout();
+ /* A stopped Android renderer can unmap its EGL buffer before the shell
+  * copies a thumbnail. Commit one app-render-tree snapshot after stop settles.
+  * This path is used only on background transitions, never during app draws. */
+ if(cover_pending){
+  if(cached_focus==1){free(cover_pixels);cover_pixels=NULL;cover_pending=0;}
+  else{
+   struct buffer *target=NULL;
+   for(unsigned i=0;i<2;i++)if(!cover_buffers[i].busy){target=&cover_buffers[i];break;}
+   if(target){
+    if(!target->object&&allocate_buffer(target)!=0){fprintf(stderr,"SDCOVER=failed|reason=shm-allocation\n");free(cover_pixels);cover_pixels=NULL;cover_pending=0;}
+    else{
+     copy_scaled(target->pixels,cover_pixels,cover_width,cover_height,width,height);
+     target->busy=1;wl_surface_attach(surface,target->object,0,0);wl_surface_damage(surface,0,0,width,height);wl_surface_commit(surface);
+     fprintf(stderr,"SDCOVER=committed|source=hwui-rendernode|width=%d|height=%d|wayland=shm|buffer_slot=%ld|per_frame_readback=0\n",cover_width,cover_height,(long)(target-cover_buffers));
+     free(cover_pixels);cover_pixels=NULL;cover_pending=0;
+    }
+   }
+  }
+ }
  if(want_raise&&extended_surface&&(!hardware_mode()||gpu_startup_mapped||gpu_parent_mapped)){qt_extended_surface_raise(extended_surface);want_raise=0;}
  int frame=want_frame,has_frame=0,bootstrap=0;struct buffer*b=NULL;
  /* A new unmapped parent cannot receive Wayland frame callbacks. Android's
@@ -633,11 +785,23 @@ static void publish(void){
  pthread_mutex_unlock(&lock);
  if(bootstrap){
   if(++bootstrap_frames<=3)fprintf(stderr,"SDHWUI=unmapped_vsync_bootstrap|sequence=%u|presented=false\n",bootstrap_frames);
-  if(callbacks_available()){(*thread_env)->CallStaticVoidMethod(thread_env,host_class,frame_done,(jlong)monotonic_ns());check_callback();}
+  int64_t timestamp=monotonic_ns();
+  sd_native_display_frame(timestamp);
+  if(callbacks_available()){(*thread_env)->CallStaticVoidMethod(thread_env,host_class,frame_done,(jlong)timestamp);check_callback();}
  }
 }
-static void*run_window(void*unused){(void)unused;if(!early_window)callbacks_available();display=wl_display_connect(NULL);if(!display){snprintf(failure,sizeof(failure),"Wayland connection failed: %s",strerror(errno));goto failed;}struct wl_registry*r=wl_display_get_registry(display);wl_registry_add_listener(r,&registry_listener,NULL);if(wl_display_roundtrip(display)<0||!compositor||!shm||!shell){snprintf(failure,sizeof(failure),"Required Wayland globals unavailable");goto failed;}surface=wl_compositor_create_surface(compositor);if(surface_extension){extended_surface=qt_surface_extension_get_extended_surface(surface_extension,surface);qt_extended_surface_add_listener(extended_surface,&extended_listener,NULL);qt_extended_surface_set_content_orientation_mask(extended_surface,1);}xdg_surface=xdg_wm_base_get_xdg_surface(shell,surface);xdg_surface_add_listener(xdg_surface,&surface_listener,NULL);toplevel=xdg_surface_get_toplevel(xdg_surface);xdg_toplevel_add_listener(toplevel,&top_listener,NULL);xdg_toplevel_set_title(toplevel,title);xdg_toplevel_set_app_id(toplevel,app_id);wl_surface_commit(surface);while(!configured)if(wl_display_dispatch(display)<0)goto failed;if(prepare_display()<0)goto failed;if(hardware_mode()&&create_gpu_background()<0){snprintf(failure,sizeof(failure),"GPU host background failed");goto failed;}if(hardware_mode()){if(sd_hwui_background_startup(getenv("SAILDROID_STARTUP_ICON"),source_w,source_h)!=0){snprintf(failure,sizeof(failure),"GPU initial presentation failed");goto failed;}gpu_startup_mapped=1;early_gpu=early_window!=0;fprintf(stderr,"SDHOST=startup_mapped|pid=%d|surface=%p|android_frame=false\n",getpid(),(void*)surface);}
-int64_t alloc_started=monotonic_ns();if(!hardware_mode()){for(int i=0;i<buffer_count;i++)if(allocate_buffer(&buffers[i])){snprintf(failure,sizeof(failure),"SHM allocation failed");goto failed;}if(perf_on)perf_alloc_ns=monotonic_ns()-alloc_started;buffers[0].busy=1;wl_surface_attach(surface,buffers[0].object,0,0);wl_surface_damage(surface,0,0,width,height);wl_surface_commit(surface);}wl_display_flush(display);pthread_mutex_lock(&lock);ready=1;if(perf_on)perf_ready_ns=monotonic_ns();pthread_cond_broadcast(&ready_condition);pthread_mutex_unlock(&lock);fprintf(stderr,"SDWINDOW=ready|size=%dx%d|source=%dx%d\n",width,height,source_w,source_h);while(running){publish();while(wl_display_prepare_read(display)!=0)if(wl_display_dispatch_pending(display)<0)goto done;wl_display_flush(display);struct pollfd fds[]={{wl_display_get_fd(display),POLLIN,0},{wake_fd,POLLIN,0}};int wait_ms=1000;pthread_mutex_lock(&lock);if(hardware_mode()&&!gpu_parent_mapped&&want_frame){int64_t left=bootstrap_next_ns-monotonic_ns();wait_ms=left>0?(int)((left+999999)/1000000):0;}pthread_mutex_unlock(&lock);int n=poll(fds,2,wait_ms);if(n<0&&errno==EINTR){wl_display_cancel_read(display);continue;}if(n<0){wl_display_cancel_read(display);break;}if(fds[0].revents&POLLIN){if(wl_display_read_events(display)<0)break;}else wl_display_cancel_read(display);if(fds[1].revents&POLLIN){uint64_t value;while(read(wake_fd,&value,sizeof(value))>0){}}if(wl_display_dispatch_pending(display)<0)break;}done:perf_dump();sd_activation_stop();if(hardware_mode())sd_hwui_background_destroy();if(extended_surface){qt_extended_surface_destroy(extended_surface);extended_surface=NULL;}if(toplevel)xdg_toplevel_destroy(toplevel);if(xdg_surface)xdg_surface_destroy(xdg_surface);if(surface)wl_surface_destroy(surface);if(display){wl_display_flush(display);wl_display_disconnect(display);display=NULL;}if(callbacks_available()){(*thread_env)->CallStaticVoidMethod(thread_env,host_class,closed_event);check_callback();(*vm)->DetachCurrentThread(vm);}else _exit(0);return NULL;failed:perf_dump();pthread_mutex_lock(&lock);ready=-1;running=0;pthread_cond_broadcast(&ready_condition);pthread_mutex_unlock(&lock);if(display)wl_display_disconnect(display);if(thread_env)(*vm)->DetachCurrentThread(vm);return NULL;}
+static void*run_window(void*unused){(void)unused;if(!early_window)callbacks_available();if(hardware_mode())sd_window_gpu_display();else display=wl_display_connect(NULL);if(!display){snprintf(failure,sizeof(failure),"Wayland connection failed: %s",strerror(errno));goto failed;}struct wl_registry*r=wl_display_get_registry(display);wl_registry_add_listener(r,&registry_listener,NULL);if(wl_display_roundtrip(display)<0||!compositor||!shm||(!shell&&!(surface_extension&&native_shell))){snprintf(failure,sizeof(failure),"Required Wayland globals unavailable");goto failed;}surface=wl_compositor_create_surface(compositor);if(surface_extension){extended_surface=qt_surface_extension_get_extended_surface(surface_extension,surface);qt_extended_surface_add_listener(extended_surface,&extended_listener,NULL);qt_extended_surface_set_content_orientation_mask(extended_surface,1);}create_window_role();wl_surface_commit(surface);while(!configured)if(wl_display_dispatch(display)<0)goto failed;if(prepare_display()<0)goto failed;if(hardware_mode()&&create_gpu_background()<0){snprintf(failure,sizeof(failure),"GPU host background failed");goto failed;}if(hardware_mode()){if(sd_hwui_background_startup(getenv("SAILDROID_STARTUP_ICON"),source_w,source_h)!=0){snprintf(failure,sizeof(failure),"GPU initial presentation failed");goto failed;}gpu_startup_mapped=1;early_gpu=early_window!=0;fprintf(stderr,"SDHOST=startup_mapped|pid=%d|surface=%p|android_frame=false\n",getpid(),(void*)surface);}
+int64_t alloc_started=monotonic_ns();if(!hardware_mode()){for(int i=0;i<buffer_count;i++)if(allocate_buffer(&buffers[i])){snprintf(failure,sizeof(failure),"SHM allocation failed");goto failed;}if(perf_on)perf_alloc_ns=monotonic_ns()-alloc_started;buffers[0].busy=1;wl_surface_attach(surface,buffers[0].object,0,0);wl_surface_damage(surface,0,0,width,height);wl_surface_commit(surface);}wl_display_flush(display);pthread_mutex_lock(&lock);ready=1;if(perf_on)perf_ready_ns=monotonic_ns();pthread_cond_broadcast(&ready_condition);pthread_mutex_unlock(&lock);fprintf(stderr,"SDWINDOW=ready|size=%dx%d|source=%dx%d\n",width,height,source_w,source_h);while(running){publish();while(wl_display_prepare_read(display)!=0)if(wl_display_dispatch_pending(display)<0)goto done;wl_display_flush(display);struct pollfd fds[]={{wl_display_get_fd(display),POLLIN,0},{wake_fd,POLLIN,0}};int wait_ms=1000;pthread_mutex_lock(&lock);if(hardware_mode()&&!gpu_parent_mapped&&want_frame){int64_t left=bootstrap_next_ns-monotonic_ns();wait_ms=left>0?(int)((left+999999)/1000000):0;}pthread_mutex_unlock(&lock);int n=poll(fds,2,wait_ms);if(n<0&&errno==EINTR){wl_display_cancel_read(display);continue;}if(n<0){wl_display_cancel_read(display);break;}if(fds[0].revents&POLLIN){if(wl_display_read_events(display)<0)break;}else wl_display_cancel_read(display);if(fds[1].revents&POLLIN){uint64_t value;while(read(wake_fd,&value,sizeof(value))>0){}}if(wl_display_dispatch_pending(display)<0)break;}done:
+    perf_dump();
+    sd_activation_stop();
+    if (hardware_mode() && callbacks_available()) {
+        /* RenderThread owns EGL queues on this connection. Keep their Wayland
+         * objects alive while the main thread destroys Activities and exits. */
+        request_close();
+        (*vm)->DetachCurrentThread(vm);
+        return NULL;
+    }
+if(hardware_mode())sd_hwui_background_destroy();if(extended_surface){qt_extended_surface_destroy(extended_surface);extended_surface=NULL;}if(native_shell_surface){wl_shell_surface_destroy(native_shell_surface);native_shell_surface=NULL;}if(toplevel)xdg_toplevel_destroy(toplevel);if(xdg_surface)xdg_surface_destroy(xdg_surface);if(surface)wl_surface_destroy(surface);if(display){wl_display_flush(display);wl_display_disconnect(display);display=NULL;}if(callbacks_available()){(*thread_env)->CallStaticVoidMethod(thread_env,host_class,closed_event);check_callback();(*vm)->DetachCurrentThread(vm);}else _exit(0);return NULL;failed:perf_dump();pthread_mutex_lock(&lock);ready=-1;running=0;pthread_cond_broadcast(&ready_condition);pthread_mutex_unlock(&lock);if(display)wl_display_disconnect(display);if(thread_env)(*vm)->DetachCurrentThread(vm);return NULL;}
 JNIEXPORT void JNICALL Java_SdWindowHost_nativeSelectHardware(JNIEnv*e,jclass c,jboolean enabled){
  (void)c;atomic_store(&selected_hardware,enabled?1:0);setenv("SAILDROID_HWUI",enabled?"1":"0",1);wake_host();
  pthread_mutex_lock(&lock);struct timespec deadline;clock_gettime(CLOCK_REALTIME,&deadline);deadline.tv_sec+=8;
@@ -657,7 +821,17 @@ JNIEXPORT jboolean JNICALL Java_SdWindowHost_nativeStart(JNIEnv*e,jclass c,jstri
  fprintf(stderr,"SDHOST=java_window_bound|pid=%d|surface=%p|reused=%d\n",getpid(),(void*)surface,early_window!=0);
  return success?JNI_TRUE:JNI_FALSE;
 }
-JNIEXPORT void JNICALL Java_SdWindowHost_nativeRequestFrame(JNIEnv*e,jclass c){(void)e;(void)c;pthread_mutex_lock(&lock);if(perf_on)perf_request_frame_calls++;want_frame=1;pthread_mutex_unlock(&lock);wake_host();}
+JNIEXPORT void JNICALL Java_SdWindowHost_nativeCoverFrame(JNIEnv*e,jclass c,jintArray data,jint w,jint h){
+ (void)c;
+ if(!hardware_mode()||w<1||h<1||w>1080||h>2160||(*e)->GetArrayLength(e,data)!=w*h){(*e)->ThrowNew(e,(*e)->FindClass(e,"java/lang/IllegalArgumentException"),"Invalid cover frame");return;}
+ uint32_t *pixels=malloc((size_t)w*h*4);if(!pixels)return;
+ (*e)->GetIntArrayRegion(e,data,0,w*h,(jint*)pixels);
+ if((*e)->ExceptionCheck(e)){free(pixels);return;}
+ pthread_mutex_lock(&lock);free(cover_pixels);cover_pixels=pixels;cover_width=w;cover_height=h;cover_pending=1;pthread_mutex_unlock(&lock);wake_host();
+}
+int sd_window_display_available(void){return atomic_load(&running);}
+void sd_window_request_display_frame(void){pthread_mutex_lock(&lock);if(perf_on)perf_request_frame_calls++;want_frame=1;pthread_mutex_unlock(&lock);wake_host();}
+JNIEXPORT void JNICALL Java_SdWindowHost_nativeRequestFrame(JNIEnv*e,jclass c){(void)e;(void)c;sd_window_request_display_frame();}
 JNIEXPORT void JNICALL Java_SdWindowHost_nativePresent(JNIEnv*e,jclass c,jintArray data,jint w,jint h){
     (void)c;
     if(perf_on)perf_present_ns=monotonic_ns();

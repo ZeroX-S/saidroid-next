@@ -15,10 +15,11 @@ Initialize the pinned submodules and apply their verified patches before the
 product build. The geometry check compiles the production Java sizing and
 touch-packet code, then passes its packets to the production native coordinate
 mapping function. It checks the default viewport, supported tall viewports,
-1080x2340, QHD, landscape and integer extremes, as well as input consumed after
-a resize, old clients without View extents and moves outside the View. Host
-dimensions and the 9 MiB frame budget must both hold, while already supported
-viewports remain unchanged.
+1080x2340, QHD, a 1600x2560 tablet viewport, landscape and integer extremes,
+as well as input consumed after a resize, old clients without View extents and
+moves outside the View. Host
+dimensions and the 33.75 MiB frame budget (`2160 * 4096 * 4`) must both hold.
+Supported viewports retain their requested dimensions.
 
 The loader check compiles the production loader against small guest-linker and
 ART-library stand-ins. It covers all four ART library names on API28 and

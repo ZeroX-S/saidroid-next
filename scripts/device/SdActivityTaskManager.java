@@ -1,22 +1,29 @@
-import android.app.IActivityTaskManager;
 import android.content.Intent;
 import android.os.*;
 import java.lang.reflect.*;
 
-/** API 29 task endpoint for the actual Activity stack in this host window. */
+/** API 28 activity-task operations dispatched by IActivityManager. */
 public final class SdActivityTaskManager implements InvocationHandler {
     private static final SdActivityTaskManager instance=new SdActivityTaskManager();
-    private final Binder binder=new Binder();private final IActivityTaskManager service;
-    private SdActivityTaskManager(){service=(IActivityTaskManager)Proxy.newProxyInstance(IActivityTaskManager.class.getClassLoader(),new Class<?>[]{IActivityTaskManager.class},this);binder.attachInterface(service,"android.app.IActivityTaskManager");}
-    public static IBinder binder(){return instance.binder;}
+    private static final java.util.Set<String> operations = new java.util.HashSet<String>(java.util.Arrays.asList(
+        "startActivity", "startActivityAsUser", "finishActivity", "finishSubActivity", "navigateUpTo",
+        "getDeviceConfigurationInfo", "isTopOfTask", "setRequestedOrientation",
+        "getRequestedOrientation", "overridePendingTransition", "isInMultiWindowMode",
+        "isInPictureInPictureMode", "getLaunchedFromUid", "getLaunchedFromPackage",
+        "getActivityClassForToken"));
+    static boolean handles(String name) { return operations.contains(name); }
+    static Object dispatch(Object proxy, Method method, Object[] args) throws Throwable {
+        return instance.invoke(proxy, method, args);
+    }
     @Override public Object invoke(Object proxy,Method method,Object[] args)throws Throwable{
-        String n=method.getName();if(n.equals("asBinder"))return binder;if(n.equals("toString"))return "SailDroid Activity tasks";if(n.equals("hashCode"))return System.identityHashCode(proxy);if(n.equals("equals"))return proxy==args[0];
+        String n=method.getName();if(n.equals("toString"))return "SailDroid Activity tasks";if(n.equals("hashCode"))return System.identityHashCode(proxy);if(n.equals("equals"))return proxy==args[0];
         if(n.equals("startActivity")||n.equals("startActivityAsUser")){
             Intent selected=null;for(Object a:args)if(a instanceof Intent){selected=new Intent((Intent)a);break;}
             if(selected==null)throw new IllegalArgumentException("Activity Intent required");
             SdActivityHost.requestStart(selected,(IBinder)args[4],(String)args[5],(Integer)args[6]);return android.app.ActivityManager.START_SUCCESS;
         }
         if(n.equals("finishActivity"))return SdActivityHost.requestFinish((IBinder)args[0],(Integer)args[1],(Intent)args[2]);
+        if(n.equals("navigateUpTo"))return SdActivityHost.requestNavigateUp((IBinder)args[0],(Intent)args[1],(Integer)args[2],(Intent)args[3]);
         if(n.equals("finishSubActivity")){SdActivityHost.requestFinishSubActivities((IBinder)args[0],(String)args[1],(Integer)args[2]);return null;}
         if(n.equals("getDeviceConfigurationInfo")){
             android.content.res.Configuration current=SdActivityHost.displayConfiguration();
@@ -38,6 +45,6 @@ public final class SdActivityTaskManager implements InvocationHandler {
         if(n.equals("getLaunchedFromUid")){SdActivityHost.requireActivity((IBinder)args[0]);return android.os.Process.myUid();}
         if(n.equals("getLaunchedFromPackage")){SdActivityHost.requireActivity((IBinder)args[0]);return SdApkPackage.NAME;}
         if(n.equals("getActivityClassForToken"))return SdActivityHost.component((IBinder)args[0]);
-        return SdServices.activityManager().invoke(proxy,method,args);
+        throw SdRuntimeDiagnostics.unsupported("Activity tasks", method);
     }
 }

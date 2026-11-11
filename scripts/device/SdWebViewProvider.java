@@ -376,13 +376,13 @@ public final class SdWebViewProvider {
                     } else if (kind.equals("load")) {
                         int status=event.optInt("status");
                         if (status == 0) { phase=PHASE_LOADING; if (client != null) client.onPageStarted(view,event.optString("url",url),null); }
-                        else if (status == 2) { phase=PHASE_READY;progress=100; if (client != null) client.onPageFinished(view,event.optString("url",url));
+                        else if (status == 2 && phase != PHASE_ERROR_NO_RENDERER) { phase=PHASE_READY;progress=100; if (client != null) client.onPageFinished(view,event.optString("url",url));
                             if (System.getenv("SAILDROID_WEBVIEW_DIAGNOSTICS")!=null) {
                                 view.postDelayed(new Runnable(){public void run(){try{command(new JSONObject().put("op","stats"));}catch(Exception ignored){}}},3000);
                                 view.postDelayed(new Runnable(){public void run(){try{command(new JSONObject().put("op","stats"));}catch(Exception ignored){}}},6000);
                             }
                         }
-                        else if (status == 3) engineFailed(event.optString("error","page load failed"));
+                        else if (status == 3) failLoad(event.optString("url",url),WebViewClient.ERROR_UNKNOWN,event.optString("error","page load failed"));
                     } else if (kind.equals("error")) engineFailed(event.optString("message","engine error"));
                     log("engine_event|" + eventAudit(event));
                 }
@@ -661,7 +661,7 @@ public final class SdWebViewProvider {
             long ms = loadStartedAt == 0 ? 0 : System.currentTimeMillis() - loadStartedAt;
             applyPhaseBackground(0xFF4A1D1D);
             log("state|phase=error_no_renderer|url=" + target + "|ms=" + ms
-                    + "|code=" + errorCode + "|renderer=none");
+                    + "|code=" + errorCode + "|renderer=" + (engine == null ? "none" : "qt-wpe"));
             if (client != null) {
                 // Both overloads exist in API29. The base WebViewClient forwards the
                 // API23 one to the legacy one, so blindly calling both would deliver
@@ -695,7 +695,7 @@ public final class SdWebViewProvider {
                         + "|client=" + client.getClass().getName() + "|url=" + target);
             }
             log("load_failed|url=" + target + "|code=" + errorCode
-                    + "|reason=renderer_unavailable|delivered_onPageFinished=false");
+                    + "|reason=" + (engine == null ? "renderer_unavailable" : "page_load_failed") + "|delivered_onPageFinished=false");
             if (view != null) view.postInvalidateOnAnimation();
         }
 
@@ -980,7 +980,10 @@ public final class SdWebViewProvider {
                                 if (dispatchSeq <= 3) log("diag|predispatch|seq=" + dispatchSeq);
                                 return Boolean.FALSE;
                             }
-                            if (n.equals("setLayoutParams")) return null;
+                            if (n.equals("setLayoutParams")) {
+                                access.super_setLayoutParams((android.view.ViewGroup.LayoutParams) args[0]);
+                                return null;
+                            }
                             if (n.equals("shouldDelayChildPressedState")) return Boolean.FALSE;
                             if (n.equals("getAccessibilityNodeProvider")) return null;
                             if (n.equals("onCreateInputConnection")) {

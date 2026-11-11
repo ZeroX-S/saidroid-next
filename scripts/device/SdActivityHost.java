@@ -6,13 +6,17 @@ import android.content.res.*;
 import android.os.*;
 import java.lang.reflect.*;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Real API 29 ActivityThread lifecycle, hosted asynchronously behind Wayland. */
 public final class SdActivityHost {
+    // Process-local endpoint for PackageManager.buildRequestPermissionsIntent.
+    static final String PERMISSION_CONTROLLER_PACKAGE="org.saildroid.permissioncontroller";
     private static final ArrayList<Entry> stack=new ArrayList<Entry>();
     private static boolean hostVisible=true;
     private static int ident;
     private static boolean closeWhenReady;
+    private static final AtomicInteger pendingStarts=new AtomicInteger();
     private static android.net.Uri pendingInstallerUri;
     private static final ArrayList<Remote> remoteActivities=new ArrayList<Remote>();
     private static final class Remote {
@@ -24,9 +28,9 @@ public final class SdActivityHost {
         if(stack.isEmpty()){taskSnapshot=Collections.emptyList();return;}
         Entry base=stack.get(0),top=stack.get(stack.size()-1);
         ActivityManager.RunningTaskInfo task=new ActivityManager.RunningTaskInfo();
-        task.id=task.taskId=1;task.userId=android.os.Process.myUid()/100000;task.displayId=SdDisplayShim.DISPLAY_ID;
-        task.baseIntent=new Intent(base.intent);task.baseActivity=new ComponentName(base.info.packageName,base.info.name);
-        task.topActivity=new ComponentName(top.info.packageName,top.info.name);task.numActivities=stack.size();task.isRunning=true;
+        task.id=1;
+        task.baseActivity=new ComponentName(base.info.packageName,base.info.name);
+        task.topActivity=new ComponentName(top.info.packageName,top.info.name);task.numActivities=stack.size();
         for(Remote remote:remoteActivities)if(remote.ready){task.topActivity=new ComponentName(remote.info.packageName,remote.info.name);task.numActivities++;}
         task.lastActiveTime=android.os.SystemClock.elapsedRealtime();task.configuration.setTo(displayConfiguration());
         taskSnapshot=Collections.singletonList(task);
@@ -85,9 +89,12 @@ public final class SdActivityHost {
         refreshTask();
         System.err.println("SDACTIVITY=host_visibility|foreground="+active+"|activity="+e.info.name);
     }
-    private static void launch(Intent request)throws Exception{launch(request,null,null,-1,null);}
-    private static void launch(Intent request,IBinder resultTo,String resultWho,int requestCode)throws Exception{launch(request,resultTo,resultWho,requestCode,null);}
-    private static void launch(Intent request,IBinder resultTo,String resultWho,int requestCode,IBinder remoteResult)throws Exception{
+    private static void launch(Intent request)throws Exception{launch(request,null,null,-1,null,null);}
+    private static void launch(Intent request,IBinder resultTo,String resultWho,int requestCode)throws Exception{
+        String referrer=resultTo==null?SdApkPackage.NAME:find(resultTo).info.packageName;
+        launch(request,resultTo,resultWho,requestCode,null,referrer);
+    }
+    private static void launch(Intent request,IBinder resultTo,String resultWho,int requestCode,IBinder remoteResult,String referrer)throws Exception{
         if(Looper.myLooper()!=Looper.getMainLooper())throw new IllegalStateException("Activity launch must use main Looper");
         if(!SdWindowHost.isStarted())SdRuntime.ensureUiHost();
         List<ResolveInfo> candidates=SdApkPackage.resolveActivities(request,request.getType(),0);
@@ -119,16 +126,28 @@ public final class SdActivityHost {
         if(previous!=null&&previous.activity!=null)pause(previous);
         SdServices.registerActivity(e.token,info,e.intent,SdDisplayShim.DISPLAY_ID);stack.add(e);refreshTask();
         ClientTransaction transaction=ClientTransaction.obtain(thread.getApplicationThread(),e.token);
-        transaction.addCallback(LaunchActivityItem.obtain(e.intent,++ident,info,displayConfiguration(),new Configuration(),CompatibilityInfo.DEFAULT_COMPATIBILITY_INFO,null,null,hostVisible?ActivityManager.PROCESS_STATE_TOP:ActivityManager.PROCESS_STATE_IMPORTANT_BACKGROUND,null,null,null,null,true,null,new Binder()));
+        // Activity.getReferrer() falls back to the launch caller's package when
+        // the Intent has no explicit referrer. Result callbacks are optional,
+        // so ordinary startActivity calls must retain their caller too.
+        transaction.addCallback(LaunchActivityItem.obtain(e.intent,++ident,info,displayConfiguration(),new Configuration(),CompatibilityInfo.DEFAULT_COMPATIBILITY_INFO,referrer,null,hostVisible?ActivityManager.PROCESS_STATE_TOP:ActivityManager.PROCESS_STATE_IMPORTANT_BACKGROUND,null,null,null,null,true,null));
         transaction.setLifecycleStateRequest(ResumeActivityItem.obtain(true));
         transaction.schedule();
         final Entry old=previous;
-        System.err.println("SDACTIVITY=transaction_scheduled|class="+info.name+"|stack="+stack.size());
+        System.err.println("SDACTIVITY=transaction_scheduled|class="+info.name+"|stack="+stack.size()+"|referrer="+referrer);
         verifyLaunch(thread,e,old,0);
+    }
+    public static void activityRelaunched(IBinder token){
+        Entry entry = find(token);
+        verifyLaunch(ActivityThread.currentActivityThread(),entry,null,0);
+        System.err.println("SDACTIVITY=relaunch_reported|class="+entry.info.name);
     }
     private static void verifyLaunch(final ActivityThread thread,final Entry e,final Entry old,final int attempt){
         post(new Runnable(){public void run(){try{
-            e.activity=thread.getActivity(e.token);e.record=ActivityThread.class.getMethod("getActivityClient",IBinder.class).invoke(thread,e.token);
+            if(!stack.contains(e))return;
+            e.record=ActivityThread.class.getMethod("getActivityClient",IBinder.class).invoke(thread,e.token);
+            // Android 9 getActivity() dereferences an absent client record.
+            // Launch and relaunch transactions can still be queued here.
+            e.activity=e.record==null?null:thread.getActivity(e.token);
             if((e.activity==null||e.record==null)&&attempt<80){
                 System.err.println("SDACTIVITY=transaction_pending|class="+e.info.name+"|attempt="+attempt);
                 new Handler(Looper.getMainLooper()).postDelayed(new Runnable(){public void run(){verifyLaunch(thread,e,old,attempt+1);}},25);
@@ -180,7 +199,7 @@ public final class SdActivityHost {
     public static void requestRemoteStart(final Intent intent,final IBinder callback){
         final Intent snapshot=new Intent(intent);
         post(new Runnable(){public void run(){try{
-            SdRuntime.ensureUiHost();launch(snapshot,null,null,-1,callback);
+            SdRuntime.ensureUiHost();launch(snapshot,null,null,-1,callback,SdApkPackage.NAME);
         }catch(Exception failure){
             try{SdRemoteActivities.finish(callback,Activity.RESULT_CANCELED,null,false);}catch(RemoteException ignored){}
             throw new IllegalStateException("Remote Activity launch failed",failure);
@@ -195,10 +214,47 @@ public final class SdActivityHost {
         requestStart(intent,null,null,-1);
     }
     public static void requestStart(final Intent intent,final IBinder resultTo,final String resultWho,final int requestCode){
+        if(SdPermissionController.accepts(intent)||SdPermissionController.acceptsSettings(intent)){
+            requestPermissions(intent,resultTo,resultWho,requestCode);return;
+        }
         if(SdApkPackage.resolveActivities(intent,intent.getType(),0).isEmpty())throw new ActivityNotFoundException(intent.toString());
-        if(requestCode>=0)find(resultTo);
+        final Entry caller=resultTo!=null||requestCode>=0?find(resultTo):null;
+        final String referrer=caller==null?SdApkPackage.NAME:caller.info.packageName;
         final Intent snapshot=new Intent(intent);
-        post(new Runnable(){public void run(){try{launch(snapshot,resultTo,resultWho,requestCode);}catch(Exception e){throw new IllegalStateException("Activity launch failed",e);}}});
+        pendingStarts.incrementAndGet();
+        post(new Runnable(){public void run(){try{
+            // The caller can finish between accepting this request and dispatch.
+            // Retain its referrer, but detach results from a destroyed Activity.
+            boolean callerAlive=caller!=null&&stack.contains(caller);
+            if(caller!=null&&!callerAlive)System.err.println("SDACTIVITY=launch_caller_finished|class="+caller.info.name+"|request_code="+requestCode);
+            launch(snapshot,callerAlive?caller.token:null,resultWho,callerAlive?requestCode:-1,null,referrer);
+        }catch(Exception e){throw new IllegalStateException("Activity launch failed",e);}
+        finally{pendingStarts.decrementAndGet();}}});
+    }
+    private static void requestPermissions(Intent intent,final IBinder token,final String who,final int requestCode){
+        final boolean settings=SdPermissionController.acceptsSettings(intent);
+        final Entry caller=token!=null?find(token):settings&&!stack.isEmpty()?stack.get(stack.size()-1):null;
+        if(caller==null)throw new SecurityException("Permission dialog requires a hosted Activity");
+        if(!settings&&(requestCode<0||who==null||!who.startsWith("@android:requestPermissions:")))throw new SecurityException("Permission request requires an Activity result owner");
+        final Intent snapshot=new Intent(intent);
+        post(new Runnable(){public void run(){
+            if(!stack.contains(caller))return;
+            ActivityThread thread=ActivityThread.currentActivityThread();
+            if(thread.getActivityClient(caller.token)==null)return;
+            Activity target=thread.getActivity(caller.token);
+            if(target==null||target.isFinishing())return;
+            if(settings){pause(caller);SdPermissionController.showSettings(target,caller.token,who,requestCode);}
+            else SdPermissionController.request(target,caller.token,snapshot,who,requestCode);
+        }});
+    }
+    public static void permissionSettingsClosed(IBinder token,String who,int requestCode){
+        Entry caller=null;for(Entry entry:stack)if(entry.token==token)caller=entry;
+        if(caller==null||caller.activity==null||caller.activity.isFinishing())return;
+        if(requestCode>=0){
+            ArrayList<ResultInfo> results=new ArrayList<ResultInfo>();results.add(new ResultInfo(who,requestCode,Activity.RESULT_OK,null));
+            ActivityThread.currentActivityThread().handleSendResult(token,results,"SailDroid application permissions closed");
+        }
+        if(hostVisible&&isTop(token))resume(caller);
     }
     public static void openInstallerFile(android.net.Uri uri){
         if(!"org.saildroid.manager".equals(SdApkPackage.NAME))throw new IllegalStateException("Installer Activity unavailable");
@@ -218,14 +274,53 @@ public final class SdActivityHost {
             for(Entry child:matched)requestFinish(child.token,Activity.RESULT_CANCELED,null);
         }});
     }
+    public static boolean requestNavigateUp(IBinder token,Intent destination,final int resultCode,Intent result){
+        final Entry source=find(token);
+        final Intent intent=new Intent(Objects.requireNonNull(destination));
+        List<ResolveInfo> candidates=SdApkPackage.resolveActivities(intent,intent.getType(),0);
+        if(candidates.isEmpty())return false;
+        ActivityInfo info=candidates.get(0).activityInfo;
+        Entry selected=null;
+        for(int index=stack.indexOf(source)-1;index>=0;index--){
+            Entry entry=stack.get(index);
+            if(entry.info.packageName.equals(info.packageName)&&entry.info.name.equals(info.name)){selected=entry;break;}
+        }
+        if(selected==null||selected.activity==null)return false;
+        final Entry parent=selected;
+        final boolean reuseParent=info.launchMode==ActivityInfo.LAUNCH_SINGLE_TOP
+                ||info.launchMode==ActivityInfo.LAUNCH_SINGLE_TASK
+                ||info.launchMode==ActivityInfo.LAUNCH_SINGLE_INSTANCE
+                ||(intent.getFlags()&Intent.FLAG_ACTIVITY_CLEAR_TOP)!=0;
+        final Intent resultData=result==null?null:new Intent(result);
+        final ArrayList<Entry> children=new ArrayList<Entry>(stack.subList(stack.indexOf(parent)+(reuseParent?1:0),stack.indexOf(source)+1));
+        Collections.reverse(children);
+        post(new Runnable(){public void run(){
+            if(!stack.contains(source)||!stack.contains(parent))return;
+            pause(stack.get(stack.size()-1));
+            if(reuseParent)ActivityThread.currentActivityThread().getInstrumentation().callActivityOnNewIntent(parent.activity,intent);
+            else try{launch(intent,source.token,null,-1);}catch(Exception failure){throw new IllegalStateException("Up Activity launch failed",failure);}
+            Entry last=children.get(children.size()-1);
+            for(Entry child:children){
+                if(!stack.contains(child))continue;
+                int code=child==source?resultCode:Activity.RESULT_CANCELED;
+                Intent data=child==source?resultData:null;
+                requestFinish(child.token,code,data,reuseParent&&child==last);
+            }
+            System.err.println("SDACTIVITY=up_requested|from="+source.info.name+"|to="+parent.info.name+"|children="+children.size());
+        }});
+        return true;
+    }
     public static boolean requestFinish(final IBinder token,final int resultCode,final Intent result){
+        return requestFinish(token,resultCode,result,true);
+    }
+    private static boolean requestFinish(final IBinder token,final int resultCode,final Intent result,final boolean revealPrevious){
         final Entry e=find(token);
         if(System.getenv("SAILDROID_ANDROID_LOG_STDERR")!=null)new Throwable("SDACTIVITY=finish_requested|class="+e.info.name).printStackTrace();
         post(new Runnable(){public void run(){
             if(!stack.contains(e))return;
-            boolean top=isTop(token);pause(e);
+            boolean top=isTop(token);SdPermissionController.cancel(token);pause(e);
             Entry revealed=null;
-            if(top&&stack.size()>1)revealed=stack.get(stack.size()-2);
+            if(top&&revealPrevious&&stack.size()>1)revealed=stack.get(stack.size()-2);
             // The revealed Activity must start/resume before the finishing one
             // stops, as in Android's pause -> resume -> stop/destroy sequence.
             // Otherwise an in-app Back transition briefly has zero started
@@ -243,6 +338,7 @@ public final class SdActivityHost {
             if(revealed!=null&&hostVisible&&revealed.activity!=null)resume(revealed);
             stop(e);ActivityThread.currentActivityThread().handleDestroyActivity(token,true,0,false,"SailDroid Activity finish");
             stack.remove(e);refreshTask();
+            if(stack.isEmpty()&&pendingStarts.get()>0){System.err.println("SDACTIVITY=activity_stack_empty|pending_starts="+pendingStarts.get());return;}
             if(stack.isEmpty()&&SdInstrumentation.requested()){System.err.println("SDINSTRUMENTATION=activity_stack_empty|process_retained=true");return;}
             if(stack.isEmpty()){try{SdServiceHost.closeAll();}catch(Exception failure){throw new IllegalStateException("Service cleanup failed",failure);}SdWindowHost.stop();System.exit(0);}
         }});return true;
@@ -251,7 +347,7 @@ public final class SdActivityHost {
         ActivityThread thread=ActivityThread.currentActivityThread();
         for(Entry entry:stack)if(entry.activity==null){closeWhenReady=true;return;}
         while(!stack.isEmpty()){
-            Entry e=stack.get(stack.size()-1);pause(e);
+            Entry e=stack.get(stack.size()-1);SdPermissionController.cancel(e.token);pause(e);
             if(e.remoteResult!=null)try{SdRemoteActivities.finish(e.remoteResult,Activity.RESULT_CANCELED,null,false);}catch(RemoteException ignored){}
             stop(e);thread.handleDestroyActivity(e.token,true,0,false,"Sailfish task closed");stack.remove(e);
         }

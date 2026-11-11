@@ -24,6 +24,11 @@ public final class SdApkPackage {
         if(parsed==null)try{
             parsed=new PackageParser().parsePackage(new File(APK),0);
             if(!NAME.equals(parsed.packageName))throw new SecurityException("APK package differs from its installation record");
+            // API28 leaves the implicit application/component process unset.
+            // Services without android:process belong to the application's process.
+            if(parsed.applicationInfo.processName==null)parsed.applicationInfo.processName=NAME;
+            for(PackageParser.Service service:parsed.services)
+                if(service.info.processName==null)service.info.processName=parsed.applicationInfo.processName;
         }catch(Exception failure){throw new IllegalStateException("Cannot read installed APK metadata",failure);}
         return parsed;
     }
@@ -48,6 +53,8 @@ public final class SdApkPackage {
     public static String providerProcess(ProviderInfo info){return info.processName!=null?info.processName:applicationInfo().processName;}
     private static ActivityInfo activity(PackageParser.Activity source){ActivityInfo result=new ActivityInfo(source.info);result.applicationInfo=applicationInfo();if(result.processName==null)result.processName=NAME;result.metaData=source.metaData;return result;}
     public static ActivityInfo activityInfo(ComponentName component,int flags){
+        if(component!=null&&NAME.equals(component.getPackageName())&&SdDocumentPicker.class.getName().equals(component.getClassName()))return SdDocumentPicker.activityInfo();
+        if(component!=null&&SdPermissionController.PACKAGE.equals(component.getPackageName())&&SdPermissionController.class.getName().equals(component.getClassName()))return SdPermissionController.settingsActivityInfo();
         if(component==null||!NAME.equals(component.getPackageName()))return null;
         for(PackageParser.Activity candidate:parsed().activities)if(candidate.info.name.equals(component.getClassName())){
             return candidate.info.enabled||(flags&PackageManager.GET_DISABLED_COMPONENTS)!=0?activity(candidate):null;
@@ -78,6 +85,7 @@ public final class SdApkPackage {
     }
     public static List<ResolveInfo> resolveActivities(Intent intent,String type,int flags){
         List<ResolveInfo> result=new ArrayList<ResolveInfo>();
+        ResolveInfo settings=SdPermissionController.resolveSettings(intent);if(settings!=null){result.add(settings);return result;}
         if(intent.getComponent()!=null){ActivityInfo info=activityInfo(intent.getComponent(),flags);if(info!=null){ResolveInfo resolved=new ResolveInfo();resolved.activityInfo=info;result.add(resolved);}return result;}
         if(intent.getPackage()!=null&&!NAME.equals(intent.getPackage()))return result;
         for(PackageParser.Activity candidate:parsed().activities){
@@ -88,6 +96,7 @@ public final class SdApkPackage {
                 if(match>=0){ResolveInfo resolved=new ResolveInfo();resolved.activityInfo=activity(candidate);resolved.match=match;resolved.priority=filter.getPriority();resolved.filter=filter;result.add(resolved);break;}
             }
         }
+        if(result.isEmpty()){ResolveInfo document=SdDocumentPicker.resolve(intent,type);if(document!=null)result.add(document);}
         return result;
     }
     public static PackageInfo packageInfo(int flags){
@@ -97,7 +106,14 @@ public final class SdApkPackage {
         if((flags&PackageManager.GET_RECEIVERS)!=0){ArrayList<ActivityInfo> entries=new ArrayList<ActivityInfo>();for(PackageParser.Activity a:source.receivers)entries.add(activity(a));result.receivers=entries.toArray(new ActivityInfo[entries.size()]);}
         if((flags&PackageManager.GET_SERVICES)!=0){ArrayList<ServiceInfo> entries=new ArrayList<ServiceInfo>();for(PackageParser.Service a:source.services){ServiceInfo info=new ServiceInfo(a.info);info.applicationInfo=applicationInfo();info.metaData=a.metaData;entries.add(info);}result.services=entries.toArray(new ServiceInfo[entries.size()]);}
         if((flags&PackageManager.GET_PROVIDERS)!=0){ArrayList<ProviderInfo> entries=new ArrayList<ProviderInfo>();for(PackageParser.Provider a:source.providers){ProviderInfo info=new ProviderInfo(a.info);info.applicationInfo=applicationInfo();info.metaData=a.metaData;entries.add(info);}result.providers=entries.toArray(new ProviderInfo[entries.size()]);}
-        if((flags&PackageManager.GET_PERMISSIONS)!=0){result.requestedPermissions=source.requestedPermissions.toArray(new String[source.requestedPermissions.size()]);}
+        if((flags&PackageManager.GET_PERMISSIONS)!=0){
+            result.requestedPermissions=source.requestedPermissions.toArray(new String[source.requestedPermissions.size()]);
+            result.requestedPermissionsFlags=new int[result.requestedPermissions.length];
+            try{
+                SdAppPermissions permissions=new SdAppPermissions(APK,NAME);
+                for(int index=0;index<result.requestedPermissions.length;index++)result.requestedPermissionsFlags[index]=PackageInfo.REQUESTED_PERMISSION_REQUIRED|(permissions.holds(result.requestedPermissions[index])?PackageInfo.REQUESTED_PERMISSION_GRANTED:0);
+            }catch(Exception failure){throw new IllegalStateException("Cannot read package permission flags",failure);}
+        }
         if((flags&(PackageManager.GET_SIGNATURES|PackageManager.GET_SIGNING_CERTIFICATES))!=0){
             synchronized(SdApkPackage.class){
                 try{if(source.mSigningDetails==PackageParser.SigningDetails.UNKNOWN)PackageParser.collectCertificates(source,false);}

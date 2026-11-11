@@ -115,7 +115,8 @@ if a.hardware_profile:
  for source in ['hardware_identity.py','capture-hardware-identity-phone.py','hardware-identity-aliases.json']:
   copy(repo/'scripts/api29'/source,'share/build/hardware-identity/'+source)
 (root/'build.prop').write_text(properties)
-(root/'runtime.json').write_text(json.dumps(dict(schema='saildroid-api29-component-v1',api=29,version='0.3.0',boot_jars=boot,renderer='hwui-gles-wayland' if hardware else 'software-wayland',native_namespaces='application-process',native_host=True,native_nice_limit=json.loads((a.product/'manifest.json').read_text()).get('native_nice_limit',28),binder_device=a.binder_device,boot_image=boot_image),indent=2)+'\n')
+product_manifest=json.loads((a.product/'manifest.json').read_text())
+(root/'runtime.json').write_text(json.dumps(dict(schema='saildroid-api29-component-v1',api=29,version='0.3.0',boot_jars=boot,renderer='hwui-gles-wayland' if hardware else 'software-wayland',native_namespaces='application-process',native_host=True,native_nice_limit=product_manifest.get('native_nice_limit',28),native_bootstrap=product_manifest.get('native_bootstrap'),binder_device=a.binder_device,boot_image=boot_image),indent=2)+'\n')
 icons=root/'share/icons';icons.mkdir(parents=True);(icons/'saildroid.svg').write_text('''<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="28" fill="#173f58"/><path d="M29 83L57 26l39 57H29z" fill="#dceaf0"/><path d="M29 91h67" stroke="#58c5d7" stroke-width="8" stroke-linecap="round"/></svg>''')
 subprocess.run(['python3',str(repo/'scripts/api29/make-startup-icon.py'),str(icons/'saildroid.png')],check=True)
 for source in [repo/'native/ime/LICENSE.LGPL',repo/'native/ime/UPSTREAM.md',repo/'native/window/surface-extension.xml']:copy(source,'share/licenses/'+source.name)

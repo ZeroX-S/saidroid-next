@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit;
 /** One isolated Qt/WPE host per WebView. The UI thread never waits for IPC. */
 public final class SdWebEngine {
     public static final int MAX_HOST_WIDTH=2160,MAX_HOST_HEIGHT=4096;
-    public static final int MAX_FRAME_BYTES=9*1024*1024;
+    public static final int MAX_FRAME_BYTES=MAX_HOST_WIDTH*MAX_HOST_HEIGHT*4;
 
     /** Match the native host's dimensions AND byte budget without distorting pages. */
     public static int[] hostSize(int requestedWidth, int requestedHeight) {

@@ -10,7 +10,7 @@ namespace SdWebApi {
 template<class T> T web(const char *name){return reinterpret_cast<T>(QLibrary::resolve("/usr/lib64/libWPEWebKit-2.0.so.1",name));}
 template<class T> T glib(const char *name){return reinterpret_cast<T>(QLibrary::resolve("/usr/lib64/libglib-2.0.so.0",name));}
 template<class T> T object(const char *name){return reinterpret_cast<T>(QLibrary::resolve("/usr/lib64/libgobject-2.0.so.0",name));}
-template<class T> T soup(const char *name){return reinterpret_cast<T>(QLibrary::resolve("/usr/lib64/libsoup-3.0.so.0",name));}
+template<class T> T soup(const char *name){return reinterpret_cast<T>(QLibrary::resolve("libsoup-3.0.so.0",name));}
 struct List {void *data;List *next,*previous;};
 using Async=void(*)(void*,void*,void*);
 }

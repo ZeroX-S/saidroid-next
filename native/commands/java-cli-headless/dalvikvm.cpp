@@ -56,7 +56,8 @@ int main(int argc,char **argv) {
     auto root=self.parent_path().parent_path();component_root=root;trusted(root,false);trusted(self,true);
     auto metadata=root/"runtime.json";trusted(metadata,true);
     Json runtime=Json::parse(read(metadata));
-    if(runtime.at("api")!=29)throw std::runtime_error("Java CLI requires API29 metadata");
+    int api=runtime.at("api").get<int>();
+    if(api!=28&&api!=29)throw std::runtime_error("Java CLI requires API28/API29 metadata");
     auto executable=root/"libexec/dalvikvm-real";trusted(executable,true);
     auto art=root/"lib/libart.so";trusted(art,true);
     auto image=root/"system/framework/arm64/boot.art";trusted(image,true);
@@ -66,9 +67,9 @@ int main(int argc,char **argv) {
       if(p.is_absolute()||name.find("..")!=std::string::npos)throw std::runtime_error("Invalid boot classpath");
       trusted(root/p,true);jars.push_back((root/p).string());locations.push_back("/home/art/api29-root/"+name);
     }
-    if(jars.size()!=14)throw std::runtime_error("Unexpected API29 boot classpath");
+    if(jars.size()!=static_cast<size_t>(api==28?13:14))throw std::runtime_error("Unexpected boot classpath");
     auto framework_runtime=root/"lib/runtime.jar";trusted(framework_runtime,true);
-    jars.push_back(framework_runtime.string());locations.push_back(framework_runtime.string());
+    jars.push_back(framework_runtime.string());locations.push_back("/home/art/api29-root/lib/runtime.jar");
     trusted(root/"lib/libsdbridge.so",true);trusted(root/"android-libs",false);
     trusted(root/"android-libs/libandroid_runtime.so",true);
     auto cli_boot=root/"lib/java-cli-bootstrap.jar";trusted(cli_boot,true);
@@ -112,7 +113,8 @@ int main(int argc,char **argv) {
     // inherited no-new-privileges/seccomp; it does not acquire a manager lease/UI.
     std::vector<std::string> args={executable.string(),"-XXlib:"+art.string(),"-Xnoimage-dex2oat",
       "-Ximage:"+image_alias.string(),"-Xbootclasspath:"+joined(jars),"-Xbootclasspath-locations:"+joined(locations),
-      "-Xtarget-sdk-version:29","-Xhidden-api-policy:enabled","-Djava.library.path="+(root/"lib").string()+":"+(root/"android-libs").string()+":/home/art/lib"+(user_native_path.empty()?"":":"+user_native_path),
+      "-Xtarget-sdk-version:"+std::to_string(api),"-Xhidden-api-policy:enabled","-Djava.library.path="+(root/"lib").string()+":"+(root/"android-libs").string()+":/home/art/lib"+(user_native_path.empty()?"":":"+user_native_path),
+      "-Dsaidroid.framework.api="+std::to_string(api),
       "-Dsaidroid.bridge.library="+(root/"lib/libsdbridge.so").string(),
       "-Dsaidroid.native.runtime="+(root/"android-libs").string()};
     for(int i=1;i<class_index;i++){

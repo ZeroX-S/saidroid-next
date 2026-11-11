@@ -18,6 +18,10 @@
 #include <unistd.h>
 using Json = nlohmann::json;
 namespace fs = std::filesystem;
+static inline bool valid_component(const std::string &name) {
+  return std::regex_match(
+      name, std::regex("[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)+"));
+}
 static const char *BUS = "org.saildroid.HostManager",
                   *OBJECT = "/org/saildroid/HostManager",
                   *IFACE = "org.saildroid.HostManager1";

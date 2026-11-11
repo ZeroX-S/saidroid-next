@@ -1,11 +1,26 @@
 # SailDroid native application host
 
-`libexec/saildroid-app` is the small CAP_SYS_RESOURCE bootstrap. It sets
-RLIMIT_NICE=40 (Android's nice -20..19 range), drops every capability, enables no_new_privs and execs
+`libexec/saildroid-app` is the small CAP_DAC_OVERRIDE/CAP_SYS_RESOURCE bootstrap.
+It restores its own `/proc/self/oom_score_adj` to zero, sets RLIMIT_NICE=40
+(Android's nice -20..19 range), drops every capability, enables no_new_privs and execs
 `libexec/saildroid-host` with the same PID. The unprivileged host pins its
 component root, sets the ART environment, execs itself once, registers its
 identity and maps the native Wayland window **before** waiting for Binder or
 initializing ART. No exec occurs after window creation.
+
+The OOM reset prevents application children from inheriting the desktop
+service's memory protection. CAP_DAC_OVERRIDE permits this fixed self-only
+write on vendor kernels exposing the control with mode 0400. Both capabilities
+are cleared before any host or application library loads. New product manifests
+declare `native_bootstrap` with schema `saildroid-native-bootstrap-v1` and
+capabilities `cap_dac_override,cap_sys_resource=ep`. Packaging and activation
+validate this exact set. Releases without this metadata retain the earlier
+`cap_sys_resource=ep` policy.
+
+Hosts spawning further processes retain `no_new_privs`. Their children verify
+and keep an already-zero OOM adjustment, allowing startup after capability
+removal. A restricted child inheriting a protected value fails before entering
+the host when it cannot restore zero.
 
 ART is created with the existing `JniInvocation`/`JNI_CreateJavaVM` API in this
 same process. The early window thread has no JNIEnv until Java has installed

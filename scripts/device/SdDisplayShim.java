@@ -38,7 +38,6 @@ public final class SdDisplayShim {
     }
     public static DisplayInfo makeDisplayInfo(){
         DisplayInfo d=new DisplayInfo();d.name="SailDroid";d.uniqueId="saildroid:wayland";
-        d.address=android.view.DisplayAddress.fromPhysicalDisplayId(0);
         d.appWidth=d.logicalWidth=d.smallestNominalAppWidth=d.largestNominalAppWidth=WIDTH;
         d.appHeight=d.logicalHeight=d.smallestNominalAppHeight=d.largestNominalAppHeight=HEIGHT;
         d.logicalDensityDpi=DENSITY;d.physicalXDpi=d.physicalYDpi=DENSITY;

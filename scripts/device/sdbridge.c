@@ -1,5 +1,6 @@
 /* SaiDroid JNI 桥：在进程内按需注册 bionic 库目录，用 bionic 加载器加载 Android 原生库。
  * 不设全局 BIONIC_LD_LIBRARY_PATH，避免 shim 接管 ART 自身的 glibc 库。 */
+#define _GNU_SOURCE
 #include <jni.h>
 #include <dlfcn.h>
 #include <stdio.h>
@@ -18,19 +19,28 @@ typedef void  (*dl_parse_t)(const char*, char*);
 
 static JavaVM* g_vm = NULL;
 static void*   g_handle = NULL;
+static void*   g_private_libc = NULL;
 static char    g_libdir[1024] = {0};
 static char    g_system_root[1024] = "/home/art";
 static jclass software_graphics_class;
 static jmethodID configure_shader_cache;
-static int framework_api = 23;
+static int framework_api = 28;
 static jclass namespace_class;
 static jmethodID bind_namespace;
 static jstring classloader_namespace(JNIEnv *env,jclass cls,jobject loader,jint sdk,jstring libraries,jstring permitted,jboolean shared,jstring dex){
     (void)cls;return (jstring)(*env)->CallStaticObjectMethod(env,namespace_class,bind_namespace,loader,sdk,libraries,permitted,shared,dex);
 }
+static jstring classloader_namespace28(JNIEnv *env,jclass cls,jobject loader,jint sdk,jstring libraries,jstring permitted,jboolean shared,jboolean vendor){
+    (void)cls;return (jstring)(*env)->CallStaticObjectMethod(env,namespace_class,bind_namespace,loader,sdk,libraries,permitted,shared,vendor);
+}
 JNIEXPORT jboolean JNICALL Java_SdBridge_installClassLoaderNamespaces(JNIEnv *env,jclass cls){
-    (void)cls;if(framework_api<29)return JNI_FALSE;
+    (void)cls;if(framework_api<28)return JNI_FALSE;
     namespace_class=(*env)->NewGlobalRef(env,(*env)->FindClass(env,"SdClassLoaderNamespaces"));if(!namespace_class)return JNI_FALSE;
+    if(framework_api==28){
+        bind_namespace=(*env)->GetStaticMethodID(env,namespace_class,"bindLegacy","(Ljava/lang/ClassLoader;ILjava/lang/String;Ljava/lang/String;ZZ)Ljava/lang/String;");if(!bind_namespace)return JNI_FALSE;
+        JNINativeMethod methods[]={{"createClassloaderNamespace","(Ljava/lang/ClassLoader;ILjava/lang/String;Ljava/lang/String;ZZ)Ljava/lang/String;",classloader_namespace28}};
+        return (*env)->RegisterNatives(env,(*env)->FindClass(env,"com/android/internal/os/ClassLoaderFactory"),methods,1)==0?JNI_TRUE:JNI_FALSE;
+    }
     bind_namespace=(*env)->GetStaticMethodID(env,namespace_class,"bind","(Ljava/lang/ClassLoader;ILjava/lang/String;Ljava/lang/String;ZLjava/lang/String;)Ljava/lang/String;");if(!bind_namespace)return JNI_FALSE;
     JNINativeMethod methods[]={{"createClassloaderNamespace","(Ljava/lang/ClassLoader;ILjava/lang/String;Ljava/lang/String;ZLjava/lang/String;)Ljava/lang/String;",classloader_namespace}};
     return (*env)->RegisterNatives(env,(*env)->FindClass(env,"com/android/internal/os/ClassLoaderFactory"),methods,1)==0?JNI_TRUE:JNI_FALSE;
@@ -71,8 +81,8 @@ static int register_local_binder(JNIEnv *env) {
         {"flushPendingCommands","()V",local_flush},
         {"blockUntilThreadAvailable","()V",local_pool_unsupported}};
     if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Binder"),methods,sizeof(methods)/sizeof(methods[0]))<0)return -1;
-    if(framework_api<29){JNINativeMethod pool[]={{"joinThreadPool","()V",local_pool_unsupported}};if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Binder"),pool,1)<0)return -1;}
-    else {
+    if(framework_api<28){JNINativeMethod pool[]={{"joinThreadPool","()V",local_pool_unsupported}};if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Binder"),pool,1)<0)return -1;}
+    if(framework_api>=29){
         JNINativeMethod attribution[]={{"isHandlingTransaction","()Z",local_is_handling},{"getCallingWorkSourceUid","()I",local_get_work_source},{"setCallingWorkSourceUid","(I)J",local_set_work_source},{"clearCallingWorkSource","()J",local_clear_work_source},{"restoreCallingWorkSource","(J)V",local_restore_work_source}};
         if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Binder"),attribution,sizeof(attribution)/sizeof(attribution[0]))<0)return -1;
     }
@@ -140,11 +150,44 @@ static int android_library_layout_valid(const char *dirs) {
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    Dl_info owner;
+    if (!dladdr((void *)android_library_layout_valid, &owner)) return JNI_ERR;
+    void *global = dlopen(owner.dli_fname, RTLD_NOW | RTLD_GLOBAL | RTLD_NOLOAD);
+    if (!global) return JNI_ERR;
+    dlclose(global);
     g_vm = vm;
     return JNI_VERSION_1_6;
 }
 
+/* The private link map and each DSO's CFI checker own validation. Android's
+ * shared shadow mapping is absent, matching libdl's unmapped-shadow result. */
+size_t bionic___cfi_shadow_size(void) { return 0; }
+
+/* No malloc-debug allocation-backtrace recorder is enabled in this process,
+ * matching Bionic's empty result when its malloc-debug hooks are absent. */
+void bionic_get_malloc_leak_info(uint8_t **info, size_t *overall, size_t *entry,
+                                size_t *allocated, size_t *backtrace) {
+    *info = NULL;
+    *overall = *entry = *allocated = *backtrace = 0;
+}
+void bionic_free_malloc_leak_info(uint8_t *info) { free(info); }
+
 extern int sd_import_host_hardware_properties(void *private_libc);
+extern int sd_import_host_product_properties(void *private_libc);
+extern int sd_import_host_timezone_properties(void *private_libc, char timezone[92]);
+
+JNIEXPORT jstring JNICALL
+Java_SdTimeZone_refreshNative(JNIEnv *env, jclass cls) {
+    (void)cls;
+    char timezone[92];
+    int result = g_private_libc ? sd_import_host_timezone_properties(g_private_libc, timezone) : -1;
+    if (result < 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"),
+                        "Host timezone import failed");
+        return NULL;
+    }
+    return result ? (*env)->NewStringUTF(env, timezone) : NULL;
+}
 
 JNIEXPORT jboolean JNICALL
 Java_SdBridge_loadBionicLibrary(JNIEnv* env, jclass cls, jstring jpath, jstring jdirs) {
@@ -176,7 +219,6 @@ Java_SdBridge_loadBionicLibrary(JNIEnv* env, jclass cls, jstring jpath, jstring 
     if (system_root && system_root[0] == '/' && strlen(system_root) < sizeof(g_system_root)) {
         snprintf(g_system_root, sizeof(g_system_root), "%s", system_root);
     }
-
     /* 提高 bionic linker 调试等级，并保证缺符号时降级为桩而不是退出 */
     int* verbosity = (int*) dlsym(dl, "apkenv_debug_verbosity");
     if (verbosity) { *verbosity = getenv("SAILDROID_LINKER_VERBOSE") ? 1 : 0; fprintf(stderr, "SDBRIDGE verbosity set\n"); }
@@ -200,7 +242,19 @@ Java_SdBridge_loadBionicLibrary(JNIEnv* env, jclass cls, jstring jpath, jstring 
                     return JNI_FALSE;
                 }
                 set_paths(private_system_font_path);
+                if (sd_import_host_product_properties(gh) < 0) {
+                    (*env)->ReleaseStringUTFChars(env, jpath, path);
+                    (*env)->ReleaseStringUTFChars(env, jdirs, dirs);
+                    return JNI_FALSE;
+                }
                 sd_import_host_hardware_properties(gh);
+                g_private_libc = gh;
+                char timezone[92];
+                if (sd_import_host_timezone_properties(gh, timezone) < 0) {
+                    (*env)->ReleaseStringUTFChars(env, jpath, path);
+                    (*env)->ReleaseStringUTFChars(env, jdirs, dirs);
+                    return JNI_FALSE;
+                }
                 fprintf(stderr, "SDBRIDGE private native font root=%s\n", g_system_root);
             }
         }
@@ -256,11 +310,17 @@ Java_SdBridge_loadBionicLibrary(JNIEnv* env, jclass cls, jstring jpath, jstring 
         {"inetSocketAddressClass","java/net/InetSocketAddress"},{NULL,NULL}
     };
     void (*initialize_modern_constants)(JNIEnv *) = bsym(h,"_ZN12JniConstants32EnsureClassReferencesInitializedEP7_JNIEnv");
+    void (*initialize_api28_constants)(JNIEnv *) = bsym(h,"_ZN12JniConstants4initEP7_JNIEnv");
     if (initialize_modern_constants) {
         framework_api = 29;
         initialize_modern_constants(env);
         if ((*env)->ExceptionCheck(env)) return JNI_FALSE;
-        fprintf(stderr,"SDBRIDGE JNI cache=Android10 nativehelper\n");
+        fprintf(stderr,"SDBRIDGE JNI cache=API%d nativehelper\n",framework_api);
+    } else if (initialize_api28_constants) {
+        framework_api = 28;
+        initialize_api28_constants(env);
+        if ((*env)->ExceptionCheck(env)) return JNI_FALSE;
+        fprintf(stderr,"SDBRIDGE JNI cache=API28 nativehelper\n");
     } else for(int i=0;jni_classes[i][0];i++) {
         char symbol[160];
         snprintf(symbol,sizeof(symbol),"_ZN12JniConstants%zu%sE",strlen(jni_classes[i][0]),jni_classes[i][0]);
@@ -364,7 +424,9 @@ static const char* kRegEntryPoints[] = {
      * 换成真实的 libhwui 之后（替身只有 13 个符号，根本提供不了 RenderNode），
      * 这两个必须注册。ThreadedRenderer 走 GL，暂时不开。 */
     "_ZN7android32register_android_view_RenderNodeEP7_JNIEnv",
+    "_ZN7android40register_android_view_RenderNodeAnimatorEP7_JNIEnv",
     "_ZN7android39register_android_view_DisplayListCanvasEP7_JNIEnv",
+    "_ZN7android38register_android_view_ThreadedRendererEP7_JNIEnv",
     "_ZN7android36register_android_graphics_DrawFilterEP7_JNIEnv",
     "_ZN7android36register_android_graphics_FontFamilyEP7_JNIEnv",
     "_ZN7android36register_android_graphics_PorterDuffEP7_JNIEnv",
@@ -384,6 +446,10 @@ static const char* kRegEntryPoints[] = {
 
 static const char *kRegEntryPoints29[] = {
 #include "../../native/api29-jni-entries.inc"
+    NULL
+};
+static const char *kRegEntryPoints28[] = {
+#include "../../native/api28-jni-entries.inc"
     NULL
 };
 extern int sd_private_binder_active(void);
@@ -430,10 +496,11 @@ Java_SdBridge_registerFrameworkNatives(JNIEnv* env, jclass cls) {
     bionic_dlsym_t bsym = (bionic_dlsym_t) dlsym(dl, "bionic_dlsym");
     if (!bsym) return -3;
     int ok = 0, missing = 0;
-    const char **entries=framework_api>=29?kRegEntryPoints29:kRegEntryPoints;
+    const char **entries=framework_api>=29?kRegEntryPoints29:
+        framework_api==28?kRegEntryPoints28:kRegEntryPoints;
     for (int i = 0; entries[i]; ++i) {
         void* fn = bsym(g_handle, entries[i]);
-        if (!fn) { missing++; if(framework_api>=29)return -10;continue; }
+        if (!fn) { missing++; if(framework_api>=28)return -10;continue; }
         int (*reg)(JNIEnv*) = (int (*)(JNIEnv*)) fn;
         int r = reg(env);
         if ((*env)->ExceptionCheck(env)) {
@@ -449,7 +516,7 @@ Java_SdBridge_registerFrameworkNatives(JNIEnv* env, jclass cls) {
     if (!sd_private_binder_active()&&register_local_binder(env) < 0) return -4;
     JNINativeMethod naming[]={{"setArgV0","(Ljava/lang/String;)V",standalone_process_name}};
     if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Process"),naming,1)<0)return -5;
-    if(framework_api>=29){
+    if(framework_api>=28){
         if(sd_memory_install(env)<0)return -17;
         if(sd_event_log_install(env,sd_lookup_android)<0)return -18;
         fprintf(stderr,"SDEVENTLOG=ready|backend=app-private-file|encoder=android-liblog|capacity=1048576|system_logd=false\n");
@@ -463,6 +530,13 @@ Java_SdBridge_registerFrameworkNatives(JNIEnv* env, jclass cls) {
         if((*env)->RegisterNatives(env,(*env)->FindClass(env,"libcore/io/IoUtils"),&ownership,1)<0)return -15;
         JNINativeMethod heap={"getUnreachableMemory","(IZ)Ljava/lang/String;",unavailable_unreachable_memory};
         if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Debug"),&heap,1)<0)return -13;
+        jclass timezone = (*env)->FindClass(env, "SdTimeZone");
+        if (!timezone) return -19;
+        jmethodID install_timezone = (*env)->GetStaticMethodID(env, timezone, "install", "()V");
+        if (!install_timezone) return -19;
+        (*env)->CallStaticVoidMethod(env, timezone, install_timezone);
+        (*env)->DeleteLocalRef(env, timezone);
+        if ((*env)->ExceptionCheck(env)) return -19;
         return ok;
     }
     JNINativeMethod cache[]={{"setupShadersDiskCache","(Ljava/lang/String;)V",software_shader_cache}};
@@ -754,6 +828,10 @@ JNIEXPORT jboolean JNICALL Java_SdBridge_installGraphicsEnvironment(JNIEnv *e,jc
     graphics_can_load=METHOD("canLoadSystemLibraries","()I");graphics_layers=METHOD("layers","(Ljava/lang/ClassLoader;Ljava/lang/String;)V");graphics_debug=METHOD("debug","(Ljava/lang/String;Z)V");graphics_stats=METHOD("stats","(Ljava/lang/String;Ljava/lang/String;JJLjava/lang/String;I)V");graphics_driver=METHOD("driver","(Ljava/lang/String;Ljava/lang/String;)V");graphics_angle=METHOD("angle","(Ljava/lang/String;)Z");graphics_hint=METHOD("hint","()V");
 #undef METHOD
     if((*e)->ExceptionCheck(e))return JNI_FALSE;
+    if(framework_api==28){
+        JNINativeMethod methods[]={{"setLayerPaths","(Ljava/lang/ClassLoader;Ljava/lang/String;)V",graphics_layer_paths},{"setDebugLayers","(Ljava/lang/String;)V",graphics_debug_layers}};
+        return (*e)->RegisterNatives(e,(*e)->FindClass(e,"android/os/GraphicsEnvironment"),methods,sizeof(methods)/sizeof(methods[0]))==0?JNI_TRUE:JNI_FALSE;
+    }
     JNINativeMethod methods[]={{"getCanLoadSystemLibraries","()I",graphics_can_load_system},{"setLayerPaths","(Ljava/lang/ClassLoader;Ljava/lang/String;)V",graphics_layer_paths},{"setDebugLayers","(Ljava/lang/String;)V",graphics_debug_layers},{"setDebugLayersGLES","(Ljava/lang/String;)V",graphics_debug_gles},{"setGpuStats","(Ljava/lang/String;Ljava/lang/String;JJLjava/lang/String;I)V",graphics_gpu_stats},{"setDriverPathAndSphalLibraries","(Ljava/lang/String;Ljava/lang/String;)V",graphics_driver_paths},{"getShouldUseAngle","(Ljava/lang/String;)Z",graphics_use_angle},{"hintActivityLaunch","()V",graphics_launch_hint}};
     return (*e)->RegisterNatives(e,(*e)->FindClass(e,"android/os/GraphicsEnvironment"),methods,sizeof(methods)/sizeof(methods[0]))==0?JNI_TRUE:JNI_FALSE;
 }

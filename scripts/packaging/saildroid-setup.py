@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manual Sailfish activation and private Binder setup. No UI or app install.
+"""Sailfish runtime activation and private Binder setup.
 
 Production CLI has no prefix/test override. Tests inject a separate Platform
 implementation and are refused on Sailfish. Every production mutation is local.
@@ -33,9 +33,66 @@ ID = re.compile(r'[a-z0-9][a-z0-9.-]{0,100}\Z')
 PACKAGE = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\Z')
 
 
+def rpm_install_scripts(release_id):
+    require(ID.fullmatch(release_id), 'Unsafe release id')
+    release = RELEASES + '/' + release_id
+    preflight = '''import os
+from pathlib import Path
+release = %r
+busy = []
+for process in Path('/proc').iterdir():
+    if not process.name.isdigit():
+        continue
+    try:
+        executable = os.readlink(process / 'exe').removesuffix(' (deleted)')
+        if executable.startswith(release + '/'):
+            busy.append(process.name)
+    except (FileNotFoundError, ProcessLookupError):
+        pass
+if busy:
+    raise SystemExit('Close SailDroid before updating this runtime. Processes: ' + ', '.join(busy))
+''' % release
+    return {'preinstall': '/usr/bin/python3 -c ' + shlex.quote(preflight),
+            'posttrans': shlex.quote(release + '/bin/saildroid-setup') + ' activate ' + shlex.quote(release_id)}
+
+
+def rpm_activation_enabled(runtime, release_id):
+    activation = runtime.get('rpm_activation')
+    if activation is None:
+        return False
+    require(activation == dict(schema='saildroid-rpm-activation-v1', mode='posttrans', release_id=release_id),
+            'Unsupported RPM activation policy')
+    return True
+
+
+def check_rpm_scripts(runtime, release_id, scripts):
+    expected = rpm_install_scripts(release_id) if rpm_activation_enabled(runtime, release_id) else {}
+    sections = re.split(r'^([a-z]+) scriptlet \(using /bin/sh\):\n', scripts, flags=re.MULTILINE)
+    require(sections[0] == '', 'Unexpected RPM installation scriptlet header')
+    actual = {}
+    for index in range(1, len(sections), 2):
+        name, body = sections[index:index + 2]
+        require(name not in actual, 'Duplicate RPM installation scriptlet')
+        actual[name] = body.rstrip()
+    require(actual == {name: body.rstrip() for name, body in expected.items()},
+            'Runtime RPM installation scriptlets differ from the activation policy')
+
+
 def require(ok, message):
     if not ok:
         raise RuntimeError(message)
+
+
+def native_bootstrap_capability(runtime):
+    bootstrap = runtime.get('native_bootstrap')
+    if bootstrap is None:
+        return 'cap_sys_resource=ep'
+    require(isinstance(bootstrap, dict)
+            and bootstrap.get('schema') == 'saildroid-native-bootstrap-v1'
+            and set(bootstrap) == {'schema', 'capabilities'}
+            and bootstrap['capabilities'] in ('cap_sys_resource=ep', 'cap_dac_override,cap_sys_resource=ep'),
+            'Unsupported native bootstrap capability policy')
+    return bootstrap['capabilities']
 
 
 def digest(path):
@@ -210,7 +267,8 @@ class Platform:
         q = self.run(['rpm', '-V', '--noscripts', name])
         require(q.returncode == 0 and not q.stdout.strip(), 'RPM verification failed: ' + q.stdout + q.stderr)
         q = self.run(['rpm', '-q', '--scripts', name])
-        require(q.returncode == 0 and not q.stdout.strip(), 'Runtime RPM must have no scriptlets')
+        require(q.returncode == 0, 'Cannot inspect RPM installation scriptlets')
+        check_rpm_scripts(document(release / 'runtime.json'), release_id, q.stdout)
         q = self.run(['rpm', '-q', '--requires', name])
         require(q.returncode == 0, 'Cannot read RPM dependencies')
         requirements = q.stdout.splitlines()
@@ -225,7 +283,8 @@ class Platform:
     def check_capabilities(self, release, legacy=False):
         q = self.run(['getcap', '-r', str(release)])
         require(q.returncode == 0, 'Cannot inspect file capabilities')
-        ordinary = [str(release / 'libexec/saildroid-app') + ' cap_sys_resource=ep']
+        capability = native_bootstrap_capability(document(release / 'runtime.json'))
+        ordinary = [str(release / 'libexec/saildroid-app') + ' ' + capability]
         lines = q.stdout.splitlines()
         if lines == ordinary:
             return
@@ -237,9 +296,10 @@ class Platform:
             'libexec/saildroid-launch': 'a56df520408a7856f0ae63463c3a13ed4b212001c955332a3c0105be7f72bfbb',
         }
         expected = {str(release / relative) + ' cap_sys_resource=ep' for relative in known_legacy}
-        require(legacy and release.parent == self.path(LEGACY_RELEASES)
+        require(capability == 'cap_sys_resource=ep'
+                and legacy and release.parent == self.path(LEGACY_RELEASES)
                 and len(lines) == len(expected) and set(lines) == expected,
-                'Only the native bootstrap may carry cap_sys_resource=ep')
+                'Only the native bootstrap may carry its declared capabilities')
         for relative, expected_hash in known_legacy.items():
             path = release / relative
             trusted(path, self.prefix)
@@ -459,7 +519,7 @@ class Setup:
                     and release in path.resolve().parents, 'Payload symlink escapes release: ' + relative)
             require(path.lstat().st_uid == 0, 'Untrusted payload symlink')
         runtime = document(release / 'runtime.json')
-        require(runtime.get('api') == 29 and runtime.get('native_host') is True, 'Only the native API29 bootstrap is supported')
+        require(runtime.get('api') in (28, 29) and runtime.get('native_host') is True, 'Only the native API28/API29 bootstrap is supported')
         for required in ('libexec/saildroid-app', 'libexec/saildroid-host', 'bin/dalvikvm', 'share/manager.apk'):
             require(required in files, 'Required native installation entry is absent: ' + required)
         if not legacy:
@@ -475,6 +535,9 @@ class Setup:
         # Fixture absolute targets use their own prefix; never resolve real /home.
         if self.host.fixture and str(link).startswith(str(self.host.prefix)):
             resolved = Path(link)
+        if (resolved.parent in (self.host.path(RELEASES), self.host.path(LEGACY_RELEASES))
+                and ID.fullmatch(resolved.name) and not resolved.exists() and not resolved.is_symlink()):
+            return None
         return self.verify(resolved, resolved.parent == self.host.path(LEGACY_RELEASES))
 
     def installed(self):
@@ -585,6 +648,8 @@ class Setup:
             self.refresh(release, release, records)
             self.quiet()
             committed = history if same else history + [transaction]
+            if same and history and history[-1]['after']['path'] == target['path']:
+                committed = history[:-1] + [dict(history[-1], after=target)]
             atomic_json(self.state / 'history.json', committed)
             (self.state / 'pending.json').unlink()
             fsync_directory(self.state)
@@ -619,7 +684,7 @@ class Setup:
         pending = dict(saved, rollback=True, rollback_launchers=backup, history_before=history)
         atomic_json(self.state / 'pending.json', pending)
         try:
-            self.switch(saved['before_link'])
+            self.switch(saved['before_link'] if previous else None)
             if previous and not previous['legacy']:
                 self.refresh(Path(previous['path']), Path(current['path']), records)
             elif previous:
@@ -684,7 +749,22 @@ class Setup:
         return dict(status='recovered', active_link=self.read_link())
 
     def status(self):
-        return dict(status='ready', active_link=self.read_link(), previous=self.history()[-1]['before'] if self.history() else None,
+        link = self.read_link()
+        active = None
+        if link is not None:
+            resolved = (self.link.parent / link).resolve() if not Path(link).is_absolute() else self.host.path(link)
+            if self.host.fixture and str(link).startswith(str(self.host.prefix)):
+                resolved = Path(link)
+            available = (resolved.parent in (self.host.path(RELEASES), self.host.path(LEGACY_RELEASES))
+                         and resolved.is_dir() and (resolved / 'runtime.json').is_file())
+            active = dict(path=str(resolved), available=available,
+                          api=document(resolved / 'runtime.json').get('api') if available else None)
+        history = self.history()
+        previous = history[-1]['before'] if history and active and active['path'] == history[-1]['after']['path'] else None
+        previous_available = bool(previous and Path(previous['path']).is_dir()
+                                  and (Path(previous['path']) / ('install-manifest.json' if previous['legacy'] else MANIFEST)).is_file())
+        status = 'ready' if active and active['available'] else 'missing-runtime' if active else 'unconfigured'
+        return dict(status=status, active_link=link, active=active, previous=previous, previous_available=previous_available,
                     interrupted=(self.state / 'pending.json').exists(), busy=self.host.busy(),
                     user=self.account['name'], uid=self.account['uid'])
 
