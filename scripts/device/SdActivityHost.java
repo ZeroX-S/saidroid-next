@@ -98,6 +98,7 @@ public final class SdActivityHost {
             if(remoteResult!=null)throw new SecurityException("Remote Activity reached the wrong process");
             startRemote(request,info,resultTo,resultWho,requestCode);return;
         }
+        if(reuseClearTop(request,info,requestCode,remoteResult))return;
         Entry previous=stack.isEmpty()?null:stack.get(stack.size()-1);
         // QQ can re-submit LoginActivity while its login page is settling.
         // Keep one Activity/window and deliver the new Intent instead of
@@ -125,6 +126,25 @@ public final class SdActivityHost {
         final Entry old=previous;
         System.err.println("SDACTIVITY=transaction_scheduled|class="+info.name+"|stack="+stack.size());
         verifyLaunch(thread,e,old,0);
+    }
+    private static boolean reuseClearTop(Intent request,ActivityInfo info,int requestCode,IBinder remoteResult){
+        int flags=request.getFlags();
+        if(remoteResult!=null||requestCode>=0||(flags&Intent.FLAG_ACTIVITY_CLEAR_TOP)==0)return false;
+        if(info.launchMode==ActivityInfo.LAUNCH_MULTIPLE&&(flags&Intent.FLAG_ACTIVITY_SINGLE_TOP)==0)return false;
+        for(int index=stack.size()-2;index>=0;index--){
+            Entry target=stack.get(index);
+            if(!target.info.packageName.equals(info.packageName)||!target.info.name.equals(info.name))continue;
+            if(target.activity==null)return false;
+            Intent delivered=new Intent(request).setComponent(new ComponentName(info.packageName,info.name));
+            ActivityThread.currentActivityThread().getInstrumentation().callActivityOnNewIntent(target.activity,delivered);
+            target.intent=delivered;
+            int children=stack.size()-index-1;
+            for(int child=stack.size()-1;child>index;child--)requestFinish(stack.get(child).token,Activity.RESULT_CANCELED,null);
+            refreshTask();
+            System.err.println("SDACTIVITY=reused|class="+info.name+"|reason=clear-top-single-top|children="+children);
+            return true;
+        }
+        return false;
     }
     private static void verifyLaunch(final ActivityThread thread,final Entry e,final Entry old,final int attempt){
         post(new Runnable(){public void run(){try{
@@ -180,7 +200,10 @@ public final class SdActivityHost {
     public static void requestRemoteStart(final Intent intent,final IBinder callback){
         final Intent snapshot=new Intent(intent);
         post(new Runnable(){public void run(){try{
-            SdRuntime.ensureUiHost();launch(snapshot,null,null,-1,callback);
+            boolean idle=stack.isEmpty();
+            SdRuntime.ensureUiHost();
+            if(idle){hostVisibility(true);org.saildroid.host.HostApi.activateSelf();}
+            launch(snapshot,null,null,-1,callback);
         }catch(Exception failure){
             try{SdRemoteActivities.finish(callback,Activity.RESULT_CANCELED,null,false);}catch(RemoteException ignored){}
             throw new IllegalStateException("Remote Activity launch failed",failure);
@@ -244,6 +267,7 @@ public final class SdActivityHost {
             stop(e);ActivityThread.currentActivityThread().handleDestroyActivity(token,true,0,false,"SailDroid Activity finish");
             stack.remove(e);refreshTask();
             if(stack.isEmpty()&&SdInstrumentation.requested()){System.err.println("SDINSTRUMENTATION=activity_stack_empty|process_retained=true");return;}
+            if(stack.isEmpty()&&e.remoteResult!=null){System.err.println("SDACTIVITY=remote_stack_empty|process_retained=true");return;}
             if(stack.isEmpty()){try{SdServiceHost.closeAll();}catch(Exception failure){throw new IllegalStateException("Service cleanup failed",failure);}SdWindowHost.stop();System.exit(0);}
         }});return true;
     }

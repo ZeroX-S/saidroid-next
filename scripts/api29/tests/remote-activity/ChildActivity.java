@@ -10,13 +10,13 @@ import android.view.View;
 
 public final class ChildActivity extends Activity {
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);int parent=getIntent().getIntExtra("parentPid",-1);String process=Application.getProcessName();
+        super.onCreate(state);int parent=getIntent().getIntExtra("parentPid",-1);int round=getIntent().getIntExtra("round",1);String process=Application.getProcessName();
         boolean isolated=parent>0&&parent!=Process.myPid()&&!ParentActivity.visited&&(getPackageName()+":tool").equals(process)&&"cross-process-intent".equals(getIntent().getStringExtra("proof"));
         Bundle shared=getContentResolver().call(android.net.Uri.parse("content://org.example.saildroid.remoteactivity.shared"),"roundtrip",null,null);
-        boolean provider=shared!=null&&shared.getInt("pid")==parent&&shared.getBoolean("parentVisited")&&shared.getInt("calls")==1;
+        boolean provider=shared!=null&&shared.getInt("pid")==parent&&shared.getBoolean("parentVisited")&&shared.getInt("calls")==round;
         System.err.println("REMOTE_ACTIVITY=provider_roundtrip|owner_pid="+(shared==null?-1:shared.getInt("pid"))+"|valid="+provider);
         Bundle stored=getContentResolver().call(android.net.Uri.parse("content://org.example.saildroid.remoteactivity.store"),"roundtrip",null,null);
-        boolean store=stored!=null&&stored.getInt("pid")!=parent&&stored.getInt("pid")!=Process.myPid()&&!stored.getBoolean("parentVisited")&&stored.getInt("calls")==1;
+        boolean store=stored!=null&&stored.getInt("pid")!=parent&&stored.getInt("pid")!=Process.myPid()&&!stored.getBoolean("parentVisited")&&stored.getInt("calls")==round;
         System.err.println("REMOTE_ACTIVITY=provider_started|owner_pid="+(stored==null?-1:stored.getInt("pid"))+"|valid="+store);
         LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(32,120,32,32);page.setBackgroundColor(0xff065f46);
         TextView text=new TextView(this);text.setTextSize(28);text.setTextColor(0xffffffff);text.setText("Declared remote Activity\n"+process+"\nIndependent process: "+isolated);page.addView(text,new LinearLayout.LayoutParams(-1,260));

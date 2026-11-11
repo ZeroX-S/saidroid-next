@@ -48,11 +48,7 @@ public final class SdRemoteActivities {
             if(found!=null&&!found.isBinderAlive())found=null;
             if(found==null){
                 org.saildroid.host.HostApi.startActivityProcess(SdApkPackage.NAME,info.name,info.processName);
-                long deadline=SystemClock.uptimeMillis()+30000;
-                while((found=SdKernelServices.registry().checkService(name))==null){
-                    if(SystemClock.uptimeMillis()>deadline)throw new IllegalStateException("Activity process startup deadline");
-                    Thread.sleep(50);
-                }
+                found=SdProcessStartup.awaitEndpoint(name,"Activity process startup deadline");
             }
             final IBinder endpoint=found;
             endpoint.linkToDeath(new IBinder.DeathRecipient(){public void binderDied(){callback.failed("process-ended");}},0);
@@ -65,6 +61,7 @@ public final class SdRemoteActivities {
                 reply.readException();
             }finally{data.recycle();reply.recycle();}
         }catch(Exception failure){
+            if(failure instanceof InterruptedException)Thread.currentThread().interrupt();
             System.err.println("SDREMOTE_ACTIVITY=start_failed|class="+info.name+"|type="+failure.getClass().getName());
             failure.printStackTrace();callback.failed(failure.getClass().getName());
         }}});

@@ -7,7 +7,7 @@ repo=Path(__file__).resolve().parents[2];java=Path(os.environ.get('JAVA_HOME','/
 subprocess.run(['python3',str(repo/'native/webview/tools/check-clinit-safety.py'),str(repo/'scripts/device/SdWebViewProvider.java')],check=True)
 classes=args.output/'classes';classes.mkdir()
 names='SdBridge SdStartup SdClassLoaderNamespaces SdGraphicsEnvironment SdRuntime SdRuntimeDiagnostics SdViewDump SdViewRepair SdRuntimeControl SdKernelServices SdBinderRegistry SdSensorService SdServiceEndpoint SdRemoteServices SdApkPackage SdAppPermissions SdActivityManagerService SdActivityTaskManager SdActivityHost SdServiceHost SdServiceManagerStub SdServices SdPackageManagerService SdStorageManager SdUsers SdDisplayShim SdWindowHost SdWindowManager SdWindowSession SdDisplayFrames SdSurfaceStore SdSurfaceControls SdMaliit SdInputManager SdInputMethods SdConnectivity SdHostState SdPower SdKeyguard SdNotificationPolicy SdContentService SdContentProviders SdSettingsProvider SdWebEngine SdWebInterfaces SdWebCookies SdWebViewProvider SdCryptoProvider'.split()
-names.extend(['SdRemoteActivities','SdBattery','SdAudio','SdInstrumentation','SdNetworkStats','SdThermal','SdDeviceIdle'])
+names.extend(['SdRemoteActivities','SdProcessStartup','SdBattery','SdAudio','SdInstrumentation','SdNetworkStats','SdThermal','SdDeviceIdle'])
 sources=[repo/'scripts/device'/(name+'.java')for name in names]+sorted((repo/'scripts/device/org/saildroid/manager').glob('*.java'))+sorted((repo/'scripts/device/org/saildroid/host').glob('*.java'))
 sources.append(repo/'scripts/device/SdSharedLibraries.java')
 sources.append(repo/'scripts/device/SdInstrumentationFiles.java')

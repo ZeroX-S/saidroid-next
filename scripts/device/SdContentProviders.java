@@ -47,13 +47,7 @@ public final class SdContentProviders {
                             String endpoint=SdKernelServices.processName(SdApkPackage.NAME,info.processName);
                             IBinder process=SdKernelServices.registry().checkService(endpoint);
                             if(process==null||!process.isBinderAlive())org.saildroid.host.HostApi.startProviderProcess(SdApkPackage.NAME,info.name,info.processName);
-                            long deadline=SystemClock.uptimeMillis()+30000;
-                            do{
-                                transport=SdKernelServices.registry().checkService(registryName(authority));
-                                if(transport!=null&&transport.isBinderAlive())break;
-                                if(SystemClock.uptimeMillis()>=deadline)throw new IllegalStateException("Provider process publication deadline");
-                                Thread.sleep(25);
-                            }while(true);
+                            transport=SdProcessStartup.awaitEndpoint(registryName(authority),"Provider process publication deadline");
                         }
                         holder.provider=ContentProviderNative.asInterface(transport);holder.connection=new Binder();
                         System.err.println("SDCONTENT=remote_transport|process="+info.processName+"|local=false");return holder;
