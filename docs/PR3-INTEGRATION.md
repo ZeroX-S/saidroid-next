@@ -179,3 +179,27 @@ The temporary WebView diagnostic had not executed in that failed app run.
 The trigger remains unproven. Closing owned apps did not recover the display;
 an ordinary reboot restored it. No compositor or networking service was
 replaced or manually stopped for this recovery.
+
+## WeChat QR verification follow-up, 2026-11-10
+
+The QR-verification crash was isolated to the process-local AppOps proxy, not
+the WebView renderer or QR page. WeChat calls
+`IAppOpsService.checkOperation` after login; the old `SdCameraAppOps` proxy
+treated that method as unsupported and raised the runtime diagnostic exception.
+The fix is commit `1f2a3a6` (`Handle AppOps checks used after WeChat login`). It
+implements the required `checkOperation`, `noteOperation`, `checkPackage`,
+`permissionToOpCode`, and `noteProxyOperation` paths while retaining the
+owner/package and permission policy. The isolated contract test
+`scripts/api29/tests/test-appops-contract-vm.py` covers allowed playback,
+denied camera/foreign-owner operations, package checks, and the note-operation
+path; its expected result is
+`APPOPS_CONTRACT=passed|checkOperation|noteOperation|checkPackage|foreign-denial`.
+
+The AppOps change is now staged for the r324d candidate. API28/API29 product
+builds and the boot-image preparation completed, but the first r324d RPM
+packaging attempt timed out during the long packaging step and is being
+retried. No r324d package has been installed on the phone and no post-fix QR
+login result is claimed yet. The r324c release remains the installed,
+reboot-verified reference until packaging and a user-controlled WeChat retry
+complete. `uuid_failed` and account verification remain unresolved acceptance
+failures until that retry produces a real security result.
