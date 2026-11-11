@@ -195,11 +195,12 @@ denied camera/foreign-owner operations, package checks, and the note-operation
 path; its expected result is
 `APPOPS_CONTRACT=passed|checkOperation|noteOperation|checkPackage|foreign-denial`.
 
-The AppOps change is now staged for the r324d candidate. API28/API29 product
-builds and the boot-image preparation completed, but the first r324d RPM
-packaging attempt timed out during the long packaging step and is being
-retried. No r324d package has been installed on the phone and no post-fix QR
-login result is claimed yet. The r324c release remains the installed,
-reboot-verified reference until packaging and a user-controlled WeChat retry
-complete. `uuid_failed` and account verification remain unresolved acceptance
-failures until that retry produces a real security result.
+The AppOps change is now staged in r324d. API28/API29 product builds, boot-image
+preparation, the setup-registry suite, and RPM packaging all pass. The package
+was installed and cold-selected while r324c was running, then an ordinary
+reboot was requested. After reboot the USB/RNDIS link returned, but the phone
+presented a changed SSH host key and rejected the previously working key and
+password. Fresh post-reboot identity and the controlled QR retry therefore
+remain pending. The r324c release remains the last reboot-verified reference;
+`uuid_failed` and account verification remain unresolved until access is
+restored and the retry produces a real security result.
