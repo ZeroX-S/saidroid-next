@@ -26,11 +26,8 @@ public final class SdRemoteServices {
         synchronized(gate){
             IBinder endpoint=cached(info);if(endpoint!=null)return endpoint;
             org.saildroid.host.HostApi.startService(SdApkPackage.NAME,info.name,info.processName);
-            long deadline=SystemClock.uptimeMillis()+30000;
-            while((endpoint=cached(info))==null){
-                if(SystemClock.uptimeMillis()>deadline)throw new IllegalStateException("Service process did not publish its endpoint: "+info.processName);
-                Thread.sleep(50);
-            }
+            endpoint=SdProcessStartup.awaitEndpoint(SdKernelServices.processName(SdApkPackage.NAME,info.processName),"Service process did not publish its endpoint: "+info.processName);
+            synchronized(lock){endpoints.put(info.processName,endpoint);}
             final String process=info.processName;final IBinder bound=endpoint;
             endpoint.linkToDeath(new IBinder.DeathRecipient(){public void binderDied(){ArrayList<Connection> targets=new ArrayList<Connection>();synchronized(lock){if(endpoints.get(process)==bound)endpoints.remove(process);for(ArrayList<Connection> list:connections.values())for(Connection connection:list)if(connection.active&&connection.endpoint==bound)targets.add(connection);}for(Connection connection:targets)try{connection.callback.connected(new ComponentName(connection.info.packageName,connection.info.name),null,true);}catch(RemoteException ignored){}}},0);
             System.err.println("SDSERVICE=remote_process_ready|process="+info.processName);return endpoint;
@@ -49,7 +46,7 @@ public final class SdRemoteServices {
         workers.execute(new Runnable(){public void run(){try{
             IBinder endpoint=ensure(info);
             synchronized(connection){if(!connection.active)return;connection.endpoint=endpoint;Parcel reply=transact(endpoint,SdServiceEndpoint.BIND,new Writer(){public void write(Parcel data){intent(data,intent,type);data.writeStrongBinder(callback.asBinder());data.writeInt(flags);data.writeString(caller);data.writeInt(user);}});try{if(reply.readInt()!=1)throw new IllegalStateException("Remote service bind was rejected");}finally{reply.recycle();}}
-        }catch(Exception failure){System.err.println("SDSERVICE=remote_bind_failed|class="+info.name+"|type="+failure.getClass().getName());failure.printStackTrace();if(connection.active)try{callback.connected(new ComponentName(info.packageName,info.name),null,true);}catch(RemoteException ignored){}}}});return 1;
+        }catch(Exception failure){if(failure instanceof InterruptedException)Thread.currentThread().interrupt();System.err.println("SDSERVICE=remote_bind_failed|class="+info.name+"|type="+failure.getClass().getName());failure.printStackTrace();if(connection.active)try{callback.connected(new ComponentName(info.packageName,info.name),null,true);}catch(RemoteException ignored){}}}});return 1;
     }
     public static boolean unbind(final IServiceConnection callback){
         final ArrayList<Connection> group;synchronized(lock){group=connections.remove(callback.asBinder());if(group==null)return false;for(Connection connection:group)connection.active=false;}
@@ -57,7 +54,7 @@ public final class SdRemoteServices {
     }
     public static ComponentName start(final Intent intent,final String type,final boolean foreground,final String caller,final int user){
         check(caller,user);final ServiceInfo info=resolve(intent,type);if(info==null||!SdKernelServices.enabled())return null;
-        workers.execute(new Runnable(){public void run(){try{Parcel reply=transact(ensure(info),SdServiceEndpoint.START,new Writer(){public void write(Parcel data){intent(data,intent,type);data.writeInt(foreground?1:0);data.writeString(caller);data.writeInt(user);}});try{if(reply.readInt()==0)throw new IllegalStateException("Remote start rejected");}finally{reply.recycle();}}catch(Exception failure){System.err.println("SDSERVICE=remote_start_failed|class="+info.name);failure.printStackTrace();}}});return new ComponentName(info.packageName,info.name);
+        workers.execute(new Runnable(){public void run(){try{Parcel reply=transact(ensure(info),SdServiceEndpoint.START,new Writer(){public void write(Parcel data){intent(data,intent,type);data.writeInt(foreground?1:0);data.writeString(caller);data.writeInt(user);}});try{if(reply.readInt()==0)throw new IllegalStateException("Remote start rejected");}finally{reply.recycle();}}catch(Exception failure){if(failure instanceof InterruptedException)Thread.currentThread().interrupt();System.err.println("SDSERVICE=remote_start_failed|class="+info.name);failure.printStackTrace();}}});return new ComponentName(info.packageName,info.name);
     }
     public static int stop(final Intent intent,final String type,final int user)throws RemoteException{
         check(SdApkPackage.NAME,user);ServiceInfo info=resolve(intent,type);if(info==null||!SdKernelServices.enabled())return 0;IBinder endpoint=cached(info);if(endpoint==null)return 0;

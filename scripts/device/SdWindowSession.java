@@ -134,6 +134,20 @@ public final class SdWindowSession implements InvocationHandler {
     }
     private void updateLayers(){int z=0;for(Window w:orderedWindows())SdSurfaceStore.z(w.surface,z++);}
     private Window top(){Window result=null;for(Window w:orderedWindows())if(w.visibility==View.VISIBLE&&(w.attributes.flags&WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)==0)result=w;return result;}
+    private Window touchTarget(float x,float y){
+        ArrayList<Window> ordered=orderedWindows();
+        for(int index=ordered.size()-1;index>=0;index--){
+            Window window=ordered.get(index);int flags=window.attributes.flags;
+            if(window.visibility!=View.VISIBLE||window.sender==null||(flags&WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)!=0)continue;
+            boolean inside=x>=window.frame.left&&x<window.frame.right&&y>=window.frame.top&&y<window.frame.bottom;
+            boolean modal=(flags&(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL))==0;
+            if(inside||modal){
+                if((flags&WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)!=0)System.err.println("SDINPUT=nonfocusable_touch_target");
+                return window;
+            }
+        }
+        return null;
+    }
     private void updateFocus()throws android.os.RemoteException{
         Window selected=top();
         for(Window w:windows.values()){
@@ -231,9 +245,9 @@ public final class SdWindowSession implements InvocationHandler {
         if(diagInput)System.err.println("SDINPUT=deliver|action="+action+"|id="+id+"|x="+x+"|y="+y+"|windows="+windows.size()+"|touches="+touches.size());
         /* 第一次按下时把目标窗口的坐标系和整棵 View 树打出来：坐标到底是"送错了地方"
            还是"送对了但没人接"，只能看真实 bounds 才能判定，不猜。 */
-        if(diagInput&&action==MotionEvent.ACTION_DOWN&&!diagDumped){diagDumped=true;Window target=top();if(target!=null)System.err.println("SDINPUT=window|frame="+target.frame+"|layout="+target.attributes.width+"x"+target.attributes.height+"|vis="+target.visibility+"|title="+target.attributes.getTitle());try{SdViewDump.dump();}catch(Throwable ignored){}}
+        if(diagInput&&action==MotionEvent.ACTION_DOWN&&!diagDumped){diagDumped=true;Window target=touchTarget(x,y);if(target!=null)System.err.println("SDINPUT=window|frame="+target.frame+"|layout="+target.attributes.width+"x"+target.attributes.height+"|vis="+target.visibility+"|title="+target.attributes.getTitle());try{SdViewDump.dump();}catch(Throwable ignored){}}
         if(action==MotionEvent.ACTION_DOWN){
-            if(touches.isEmpty()){gesture=top();if(gesture==null||gesture.sender==null){if(diagInput)System.err.println("SDINPUT=drop_no_window|gestureNull="+(gesture==null)+"|senderNull="+(gesture!=null&&gesture.sender==null)+"|windows="+windows.size());return;}downTime=time;}
+            if(touches.isEmpty()){gesture=touchTarget(x,y);if(gesture==null||gesture.sender==null){if(diagInput)System.err.println("SDINPUT=drop_no_window|gestureNull="+(gesture==null)+"|senderNull="+(gesture!=null&&gesture.sender==null)+"|windows="+windows.size());return;}downTime=time;}
             if(touches.containsKey(id))return;
             int pointerId=0;boolean used;
             do{used=false;for(Touch point:touches.values())if(point.pointerId==pointerId){used=true;pointerId++;break;}}while(used);

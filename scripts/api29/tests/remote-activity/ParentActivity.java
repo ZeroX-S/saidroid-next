@@ -11,6 +11,7 @@ import android.view.View;
 public final class ParentActivity extends Activity {
     public static boolean visited;
     boolean resumed,resultReceived,valid;
+    int completed;
     TextView status;
     @Override public void onCreate(Bundle state){
         super.onCreate(state);visited=true;
@@ -36,7 +37,7 @@ public final class ParentActivity extends Activity {
         Button button=new Button(this);button.setText("Open remote Activity");page.addView(button,new LinearLayout.LayoutParams(-1,240));
         button.setOnClickListener(new View.OnClickListener(){public void onClick(View view){
             resultReceived=false;valid=false;
-            Intent intent=new Intent(ParentActivity.this,ChildActivity.class).putExtra("parentPid",Process.myPid()).putExtra("proof","cross-process-intent");
+            Intent intent=new Intent(ParentActivity.this,ChildActivity.class).putExtra("parentPid",Process.myPid()).putExtra("round",completed+1).putExtra("proof","cross-process-intent");
             startActivityForResult(intent,73);System.err.println("REMOTE_ACTIVITY=parent_requested|pid="+Process.myPid());
         }});setContentView(page);System.err.println("REMOTE_ACTIVITY=parent_created|pid="+Process.myPid());
     }
@@ -44,8 +45,8 @@ public final class ParentActivity extends Activity {
     @Override public void onStop(){super.onStop();System.err.println("REMOTE_ACTIVITY=parent_stopped");}
     @Override public void onResume(){super.onResume();resumed=true;System.err.println("REMOTE_ACTIVITY=parent_resumed");if(resultReceived){status.setText(valid?"PASS: real remote Activity and result":"FAIL: remote Activity contract");System.err.println("REMOTE_ACTIVITY="+(valid?"PASS":"FAIL")+"|result_before_resume=true");}}
     @Override public void onActivityResult(int request,int code,Intent data){
-        super.onActivityResult(request,code,data);resultReceived=true;
-        valid=!resumed&&request==73&&code==RESULT_OK&&data!=null&&"remote-result".equals(data.getStringExtra("proof"))&&data.getBooleanExtra("isolated",false)&&data.getBooleanExtra("provider",false)&&data.getBooleanExtra("store",false)&&SharedProvider.calls==1&&data.getIntExtra("childPid",-1)!=Process.myPid()&&(getPackageName()+":tool").equals(data.getStringExtra("process"));
+        super.onActivityResult(request,code,data);resultReceived=true;completed++;
+        valid=!resumed&&request==73&&code==RESULT_OK&&data!=null&&"remote-result".equals(data.getStringExtra("proof"))&&data.getBooleanExtra("isolated",false)&&data.getBooleanExtra("provider",false)&&data.getBooleanExtra("store",false)&&SharedProvider.calls==completed&&data.getIntExtra("childPid",-1)!=Process.myPid()&&(getPackageName()+":tool").equals(data.getStringExtra("process"));
         System.err.println("REMOTE_ACTIVITY=result_received|request="+request+"|result="+code+"|before_resume="+!resumed+"|valid="+valid);
     }
 }
