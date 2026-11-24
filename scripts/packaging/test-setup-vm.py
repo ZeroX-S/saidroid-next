@@ -125,18 +125,19 @@ m.check_rpm_scripts(runtime,'api28-a',text);m.check_rpm_scripts({},'api28-a','')
 must_fail('unexpected-install-scriptlet-refused',lambda:m.check_rpm_scripts(runtime,'api28-a',text+'unexpected\n'),'scriptlets differ')
 record('sealed-installation-policy-and-inert-packages-validated')
 with fixture()as host:
- root=release(host,'api28-a',api=28)
- preflight=scripts['preinstall'].replace(m.RELEASES+'/api28-a',str(root))
+ root=release(host,'api28-a',api=28);previous=release(host,'api28-old',api=28)
+ preflight=scripts['preinstall'].replace(m.RELEASES+'/api28-a',str(root)).replace(m.LEGACY_RELEASES,str(host.path(m.LEGACY_RELEASES)))
  assert subprocess.run(['/bin/sh','-c',preflight],capture_output=True,text=True).returncode==0
- executable=root/'libexec/saildroid-host';shutil.copyfile('/bin/sleep',executable);executable.chmod(0o755)
- child=subprocess.Popen([str(executable),'60'])
- try:
-  for attempt in range(40):
-   if Path('/proc/'+str(child.pid)+'/exe').resolve()==executable:break
-   time.sleep(.05)
-  check=subprocess.run(['/bin/sh','-c',preflight],capture_output=True,text=True)
-  assert check.returncode!=0 and 'Close SailDroid' in check.stderr and str(child.pid) in check.stderr
- finally:child.terminate();child.wait(timeout=10)
+ for target in (root/'libexec/saildroid-host',previous/'libexec/saildroid-host'):
+  shutil.copyfile('/bin/sleep',target);target.chmod(0o755)
+  child=subprocess.Popen([str(target),'60'])
+  try:
+   for attempt in range(40):
+    if Path('/proc/'+str(child.pid)+'/exe').resolve()==target:break
+    time.sleep(.05)
+   check=subprocess.run(['/bin/sh','-c',preflight],capture_output=True,text=True)
+   assert check.returncode!=0 and 'Close SailDroid' in check.stderr and str(child.pid) in check.stderr
+  finally:child.terminate();child.wait(timeout=10)
  record('rpm-preinstall-blocks-overwriting-a-running-runtime')
 with fixture()as host:
  a=release(host,'api29-a');previous=os.umask(0o077)

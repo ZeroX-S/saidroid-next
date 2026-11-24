@@ -67,4 +67,3 @@ NativeLoaderNamespace* FindNativeLoaderNamespaceByClassLoader(JNIEnv* env, jobje
     return static_cast<NativeLoaderNamespace*>(::FindNativeLoaderNamespaceByClassLoader(env, loader));
 }
 }
-

@@ -39,19 +39,22 @@ def rpm_install_scripts(release_id):
     preflight = '''import os
 from pathlib import Path
 release = %r
+roots = (str(Path(release).parent) + '/', %r + '/')
 busy = []
 for process in Path('/proc').iterdir():
     if not process.name.isdigit():
         continue
     try:
         executable = os.readlink(process / 'exe').removesuffix(' (deleted)')
-        if executable.startswith(release + '/'):
+        if executable.startswith(release + '/') or (
+                executable.startswith(roots)
+                and Path(executable).name in ('saildroid-host', 'saildroid-app', 'dalvikvm', 'dalvikvm-real')):
             busy.append(process.name)
-    except (FileNotFoundError, ProcessLookupError):
+    except (FileNotFoundError, ProcessLookupError, PermissionError):
         pass
 if busy:
     raise SystemExit('Close SailDroid before updating this runtime. Processes: ' + ', '.join(busy))
-''' % release
+''' % (release, LEGACY_RELEASES)
     return {'preinstall': '/usr/bin/python3 -c ' + shlex.quote(preflight),
             'posttrans': shlex.quote(release + '/bin/saildroid-setup') + ' activate ' + shlex.quote(release_id)}
 

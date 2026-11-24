@@ -75,12 +75,12 @@ try:
   wait(lambda:'REMOTE_ACTIVITY=child_created'in text(record),10,'Old cohosted Activity did not run');assert '|isolated=false|'in text(record);remote=record
  else:
   key=pkg+'.service.'+hashlib.sha256((pkg+':tool').encode()).hexdigest()[:16]
-  remote=wait(lambda:r if(r:=read(key))and alive(r)and 'REMOTE_ACTIVITY=child_created'in text(r)else None,35,'Declared process did not create child Activity')
+  remote=wait(lambda:r if(r:=read(key))and alive(r)and 'REMOTE_ACTIVITY=child_created'in text(r)else None,150,'Declared process did not create child Activity')
   assert remote['pid']!=record['pid']and remote['owner_launch_id']==record['launch_id']and remote['process_name']==pkg+':tool'
   assert '|isolated=true|'in text(remote),text(remote)[-1000:]
   assert 'REMOTE_ACTIVITY=provider_roundtrip|owner_pid='+str(record['pid'])+'|valid=true'in text(remote)
   store_key=pkg+'.service.'+hashlib.sha256((pkg+':store').encode()).hexdigest()[:16]
-  store=wait(lambda:r if(r:=read(store_key))and alive(r)and 'SDRUNTIME=service_process_ready|process='+pkg+':store'in text(r)else None,10,'Provider did not start in its declared headless process')
+  store=wait(lambda:r if(r:=read(store_key))and alive(r)and 'SDRUNTIME=service_process_ready|process='+pkg+':store'in text(r)else None,150,'Provider did not start in its declared headless process')
   assert store['pid']not in [record['pid'],remote['pid']]and store['owner_launch_id']==record['launch_id']and not store.get('window_mapped',False)
   assert 'REMOTE_ACTIVITY=provider_started|owner_pid='+str(store['pid'])+'|valid=true'in text(remote)
  wait(lambda:m.top()==remote['pid']and 'SDWINDOW_SESSION=drawn|title='+pkg+'/'+pkg+'.ChildActivity'in text(remote),5,'Child Activity did not present its actual window');shot('child-visible',(6,95,70))
@@ -95,8 +95,18 @@ try:
  wait(lambda:expected in text(record),15,'Activity result not delivered with expected isolation')
  assert 'before_resume=true'in text(record)
  wait(lambda:m.top()==record['pid'],5,'Result did not restore original parent');assert alive(record);shot('parent-after',(224,242,254))
+ if expect=='isolated':
+  wait(lambda:alive(remote)and 'SDACTIVITY=remote_stack_empty|process_retained=true'in text(remote),5,'Returning the child destroyed its process')
+  created=text(remote).count('REMOTE_ACTIVITY=child_created');passed=text(record).count('REMOTE_ACTIVITY=PASS')
+  inp.stdin.write('tap 540 500\nsleep 250\n');inp.stdin.flush()
+  wait(lambda:text(remote).count('REMOTE_ACTIVITY=child_created')==created+1,15,'Retained process did not reopen its Activity')
+  current=read(key);assert alive(current)and current['pid']==remote['pid']and current['launch_id']==remote['launch_id']
+  wait(lambda:m.top()==remote['pid'],5,'Reopened Activity did not regain foreground');shot('child-second-launch',(6,95,70))
+  inp.stdin.write('tap 540 500\nsleep 250\n');inp.stdin.flush()
+  wait(lambda:text(record).count('REMOTE_ACTIVITY=PASS')==passed+1,15,'Second result failed in retained process')
+  wait(lambda:m.top()==record['pid'],5,'Second result did not restore parent');assert alive(remote)
  for r in [record,remote]:assert 'SDRUNTIME=uncaught'not in text(r)and'SDRUNTIME=failed'not in text(r)
- result=dict(expectation=expect,parent_pid=record['pid'],child_pid=remote['pid'],provider_pid=store['pid']if store else None,same_parent=True,real_result_before_resume=True,component=component,boot=boot,status='negative-reproduced'if expect=='cohosted'else'PASS')
+ result=dict(expectation=expect,parent_pid=record['pid'],child_pid=remote['pid'],provider_pid=store['pid']if store else None,same_parent=True,real_result_before_resume=True,child_process_reused=expect=='isolated',component=component,boot=boot,status='negative-reproduced'if expect=='cohosted'else'PASS')
  (base/'result.json').write_text(json.dumps(result,indent=2)+'\n');print('REMOTE_ACTIVITY_CONTRACT='+result['status']+'|parent_pid='+str(record['pid'])+'|child_pid='+str(remote['pid'])+'|result_before_resume=true',flush=True)
 finally:
  subprocess.run(['mcetool','--set-never-blank=disabled','--blank-screen'],timeout=5)

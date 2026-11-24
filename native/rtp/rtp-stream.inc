@@ -430,4 +430,3 @@ void AudioStream::decode(int tick)
     }
     mBufferTail += count / mSampleRate;
 }
-
