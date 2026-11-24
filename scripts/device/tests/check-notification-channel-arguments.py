@@ -162,6 +162,7 @@ def main():
                            ('dalvik/system/VMRuntime.java', VM_RUNTIME),
                            ('android/os/Process.java', 'package android.os; public class Process { public static int myUid() { return 100000; } }'),
                            ('android/content/Context.java', CONTEXT), ('SdApkPackage.java', PACKAGE),
+                           ('SdToastQueue.java', 'import android.app.ITransientNotification; public final class SdToastQueue { public static void enqueue(ITransientNotification c, int d) throws Exception {} public static void cancel(ITransientNotification c) {} }'),
                            ('SdRuntimeDiagnostics.java', DIAGNOSTICS), ('NotificationChannelArgumentsProbe.java', PROBE)]:
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)

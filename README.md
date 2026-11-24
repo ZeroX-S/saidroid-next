@@ -1,8 +1,8 @@
 # SaiDroid Next
 
-Sailfish OS 上的独立 ART / Android 10（API 29）兼容运行时。Android 应用分别运行在普通用户进程中，通过原生 Wayland 窗口、输入、服务适配和 bionic 兼容层接入 Sailfish。
+Sailfish OS 上的独立 ART / Android 9（API 28）兼容运行时。Android 应用分别运行在普通用户进程中，通过原生 Wayland 窗口、输入、服务适配和 bionic 兼容层接入 Sailfish。
 
-这是独立 ART 路线，与旧的容器后端项目不同。当前为实验性开发版本。
+这是独立 ART 路线，与旧的容器后端项目不同。当前为实验性开发版本，仅维护 Android 9（API 28）运行时目标。
 
 ## 下载与安装
 
@@ -10,7 +10,7 @@ Sailfish OS 上的独立 ART / Android 10（API 29）兼容运行时。Android �
 - [安装、激活与回退说明](docs/INSTALL.md)
 - [当前验证范围与已知问题](docs/STATUS.md)
 
-当前发布 `r321o`：aarch64 RPM `0.321.15-1`。已验证设备环境为 Pixel 3a XL / Sailfish OS 5.2.0.16，设备上的 glibc 为 2.41。RPM 的最低依赖包括 glibc 2.38、libstdc++ 13.2、Qt 5、Wayland、EGL/GLES、GStreamer 和 Python 3.9。系统版本号本身不足以确认兼容性；本包面向已具备项目 ART/Binder 基础环境的测试设备，尚未提供新设备的全量自动配置。
+RPM 的最低宿主依赖包括 glibc 2.38、libstdc++ 13.2、Qt 5、Wayland、EGL/GLES、PulseAudio、GStreamer 和 Python 3.9。系统版本号本身不足以确认兼容性；本包面向已具备项目 ART/Binder 基础环境的 aarch64 Sailfish OS 测试设备。
 
 本包不包含 QQ、微信、小红书、知乎或其他商业应用 APK、账号数据、用户签名密钥及应用 AOT 缓存。
 
@@ -41,29 +41,26 @@ zypper in libepoxy libwpe wpebackend-fdo wpewebkit2 wpewebkit2-qt5
 
 ## 当前状态
 
-此前 r321n 在 2026-11-06 的四应用可见启动采集通过，QQ、微信、小红书、知乎各取得两张新帧，并验证前台进程和窗口焦点。微信、小红书处于未登录欢迎页；这不代表登录后功能已通过。
+主线已收敛至 Android 9（API 28）兼容运行时，包含框架与 SDK 公共成员恢复、JNI 与跨进程组件（Activity / Service / Provider / ManifestReceiver）管理、Wayland 显示事件与全屏/平板视口适配、Atlantic/WPE WebView 恢复、PulseAudio 麦克风及 RTP/SIP 语音支持、本地只读文件选择器，以及 QQ 登录等待、相册回传聊天、接收文件显式广播与非聚焦弹窗触摸路由修复。
 
-两轮后台返回测试在知乎启动准备阶段被进程身份审计拒绝，实际未发出切换手势。知乎间歇性窗口焦点问题、应用内完整功能、长时稳定性和完整 CTS 仍待完成。50% 性能目标暂缓，暂无达到该目标的声明。
-
-当前 r321o 修复了未申请 `ACCESS_NETWORK_STATE` 的应用在公共启动阶段被代理查询错误拒绝的问题；安装程序、计算器不再需要凭空增加网络权限。离屏 ART 回归复现旧错误并验证修复，8 项网络状态/回调操作仍保留权限检查。修复包已安装、激活并完成普通重启。新会话中，安装程序和计算器均已创建真实窗口、呈现首帧并接收触摸；日志包含应用处理证据，且无原启动权限异常，`rpm -V` 无差异。本次从用户已打开的实例采证，没有将复用实例记作冷启动通过，也没有完成新的截图或完整计算功能测试。
+完整应用内长时稳定性、微信服务号/小程序端到端验收及完整 CTS 仍待在目标设备上持续验证。
 
 ## 源码
 
 ```text
-native/                 原生宿主、兼容层、窗口、输入、媒体与 WebView
+native/                 原生宿主、兼容层、窗口、输入、媒体、RTP 与 WebView
 scripts/device/         Java 运行时与系统服务适配
-scripts/api29/          API29 构建、兼容补丁与用例
-scripts/packaging/      版本隔离 RPM、显式激活和回退工具
+scripts/api28/          API 28 框架、SDK 公共成员、SIP/RTP 与原生加载器构建工具
+scripts/api29/          共享核心覆盖层、组件打包与回归用例（目标固定为 API 28）
+scripts/compat/         JNI、服务路由、SDK 覆盖率与打包 ART 预检工具
+scripts/packaging/      版本隔离 RPM、Binder 配置、激活和回退工具
 scripts/cts/            CTS 执行与统计工具
 scripts/perf/           性能与窗口回归工具
 third_party/            固定版本的上游 Git 子模块
 patches/third-party/    上游依赖的本地改动
-releases/r321o/         已编译版本的随包源码与来源记录
 ```
 
-[构建与依赖说明](docs/BUILD.md)。工作源码包含本地尚未提交的开发修改；`releases/r321o/compiled-source` 单独保存已编译版本的源码来源。两者不能混称为同一个可复现构建结果。`SOURCE-SNAPSHOT.json` 逐项记录原始与公开源码哈希及认证默认值替换。
-
-这是首次公开源码快照，尚未验证从空环境一键重建整个 r321o。历史开发脚本保留了 VM 路径和设备别名；执行前需配置自己的环境。
+构建流程与依赖说明见 [docs/BUILD.md](docs/BUILD.md)，端口与兼容性回归测试见 [docs/TESTING-PORT-COMPATIBILITY.md](docs/TESTING-PORT-COMPATIBILITY.md)。
 
 ## 许可
 

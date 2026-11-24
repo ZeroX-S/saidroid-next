@@ -7,12 +7,23 @@ and protocol contract test; it does not claim to render a real WPE page.
 from pathlib import Path
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import tempfile
 
+def default_jdk():
+    if os.environ.get('JAVA_HOME'):
+        return Path(os.environ['JAVA_HOME'])
+    legacy = Path('/tmp/jdkfull/jdk-21.0.13+9')
+    if legacy.is_dir():
+        return legacy
+    compiler = shutil.which('javac')
+    return Path(compiler).resolve().parents[1] if compiler else legacy
+
 p = argparse.ArgumentParser()
 p.add_argument('--android-jar', type=Path, required=True)
-p.add_argument('--jdk', type=Path, default=Path('/tmp/jdkfull/jdk-21.0.13+9'))
+p.add_argument('--jdk', type=Path, default=default_jdk())
 a = p.parse_args()
 repo = Path(__file__).resolve().parents[3]
 

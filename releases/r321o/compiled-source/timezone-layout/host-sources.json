@@ -1,7 +1,0 @@
-{
-  "scope": "Normal native host environment for every ARTrole before VMstart; real private runtimeAPEXroot and optional timezonedata module root. No fixture/package conditional, JNI/clock/SDK/input/permission changes.",
-  "source": "native/compat/timezone-layout/host-entry.cpp",
-  "sha256": "2892f5961c094050134259655390479ae369440efc894a7da00cd2f2a737324d",
-  "baseline_source": "native/host/host-entry.cpp",
-  "baseline_sha256": "4aec0f212f1bc81a797f99b8c99f8c40c52545b5b7772f3f7dab0bfa246b308e"
-}

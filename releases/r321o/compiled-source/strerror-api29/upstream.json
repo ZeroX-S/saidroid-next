@@ -1,5 +1,0 @@
-{
-  "url": "https://android.googlesource.com/platform/bionic/+/android-10.0.0_r47/libc/bionic/strerror.cpp",
-  "sha256": "045716ef920ba0f94f4c9e8124dd458d08a16a61426af0498550265d912c6b91",
-  "scope": "Error strings and API29 return/errno behavior; host symbol prefix adaptation."
-}

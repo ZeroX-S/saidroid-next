@@ -64,7 +64,7 @@ python3 scripts/compat/run-preflight.py \
   --output "$output" --headless --elf --apk "$apk"
 ```
 
-参数变量使用记录中的实际路径。framework 固定为 API28 或 API29 对应的已校验输入，
+参数变量使用记录中的实际路径。framework 固定为 API28 对应的已校验输入，
 执行侧使用选定包中的 ART、boot JAR 和 native 库。参考侧使用主机 JDK 执行相同的未修改 AOSP libcore 测试，
 结果对照范围为这 86 个用例。
 
@@ -77,7 +77,7 @@ Sailfish 窗口呈现、触摸、键盘和硬件交互在真机验证阶段完�
 ### 构建入口
 
 `scripts/api29/build-product.py` 在 Java 和 D8 完成后自动调用源码 JNI 与服务路由检查，检查失败会阻断后续构建。
-`--api 28` 选择当前 API28 分支的编译基线，默认选择 API29。
+构建默认且仅支持 API28（`--api 28`）。
 源码目录清单集中在 `product_sources.py`，编译与审计共用设备代码、广播、PendingIntent、媒体与摄像头目录。
 `java-sources.json` 记录显式及依赖发现的实际 Java 输入。
 
@@ -85,7 +85,7 @@ Sailfish 窗口呈现、触摸、键盘和硬件交互在真机验证阶段完�
 
 ```sh
 python3 scripts/api29/build-product.py "$inputs" "$output" \
-  --api 28 --framework "$framework" --r8 "$r8" --compat-only \
+  --framework "$framework" --r8 "$r8" --compat-only \
   --compat-core "$core_oj" --compat-core "$core_libart"
 ```
 

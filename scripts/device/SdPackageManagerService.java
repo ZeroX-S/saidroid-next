@@ -5,7 +5,7 @@ import android.os.Process;
 import java.lang.reflect.*;
 import java.util.*;
 
-/** API 29 package service. Answers derive from the real selected APK. */
+/** API 28 package service. Answers derive from the real selected APK. */
 public final class SdPackageManagerService implements InvocationHandler {
     private static final SdPackageManagerService instance=new SdPackageManagerService();
     private final Binder binder=new Binder();private final IPackageManager service;
@@ -16,9 +16,9 @@ public final class SdPackageManagerService implements InvocationHandler {
     public static IBinder binder(){return instance.binder;}public static IPackageManager service(){return instance.service;}
     private ApplicationInfo app(String name){
         if(SdApkPackage.NAME.equals(name))return SdApkPackage.applicationInfo();if(!"android".equals(name))return SdInstrumentation.applicationInfo(name);
-        ApplicationInfo value=new ApplicationInfo();value.packageName="android";value.name=value.className="android.app.Application";value.processName="android";value.uid=Process.SYSTEM_UID;value.sourceDir=value.publicSourceDir=System.getenv("ANDROID_ROOT")+"/framework/framework-res.apk";value.flags=ApplicationInfo.FLAG_SYSTEM;value.targetSdkVersion=29;value.enabled=true;return value;
+        ApplicationInfo value=new ApplicationInfo();value.packageName="android";value.name=value.className="android.app.Application";value.processName="android";value.uid=Process.SYSTEM_UID;value.sourceDir=value.publicSourceDir=System.getenv("ANDROID_ROOT")+"/framework/framework-res.apk";value.flags=ApplicationInfo.FLAG_SYSTEM;value.targetSdkVersion=28;value.enabled=true;return value;
     }
-    private PackageInfo info(String name,int flags){if(SdApkPackage.NAME.equals(name))return SdApkPackage.packageInfo(flags);if(SdInstrumentation.applicationInfo(name)!=null)return SdInstrumentation.packageInfo(name);ApplicationInfo app=app(name);if(app==null)return null;PackageInfo result=new PackageInfo();result.packageName=name;result.applicationInfo=app;result.versionCode=29;result.versionName="10";return result;}
+    private PackageInfo info(String name,int flags){if(SdApkPackage.NAME.equals(name))return SdApkPackage.packageInfo(flags);if(SdInstrumentation.applicationInfo(name)!=null)return SdInstrumentation.packageInfo(name);ApplicationInfo app=app(name);if(app==null)return null;PackageInfo result=new PackageInfo();result.packageName=name;result.applicationInfo=app;result.versionCode=28;result.versionName="9";return result;}
     private synchronized int permission(String name,String owner)throws Exception{
         if(SdApkPackage.NAME.equals(owner)){
             if(permissions==null)permissions=new SdAppPermissions(SdApkPackage.APK,SdApkPackage.NAME);

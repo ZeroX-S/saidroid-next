@@ -1,6 +1,0 @@
-{
-  "source": "/Users/zerox/WorkSpace/saidroid-next/build/evidence/apps-performance321-20261104/performance/distribution-v16/assembly/root/share/build/uimode-connectivity321/007-SdConnectivity.java",
-  "baseline_sha256": "e3a8a2e23c61f259b96f41ab7463f7b7b2ca69f81254855d0e6ec8969a417c51",
-  "candidate_sha256": "418d2d184a6264519832b2a762f945cb712b44e2716df1328d678001f041ddc8",
-  "scope": "Proxy configuration query is permission-free; network observation and callback permission gates retained"
-}

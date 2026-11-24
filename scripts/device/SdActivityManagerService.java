@@ -225,6 +225,10 @@ public final class SdActivityManagerService implements InvocationHandler {
         Intent intent=(Intent)args[1];if(intent==null)throw new IllegalArgumentException("Intent is required");
         if(args[3]!=null||(Boolean)args[10]||(Boolean)args[11]||(Integer)args[8]!=-1||args[9]!=null)throw new UnsupportedOperationException("Ordered/sticky/app-op/options broadcasts unavailable");
         String[] permissions=(String[])args[7];int user=(Integer)args[12];
+        if (intent.getComponent() != null) {
+            SdManifestReceivers.send(intent,(Integer)args[4],(String)args[5],(android.os.Bundle)args[6],permissions,user);
+            return ActivityManager.BROADCAST_SUCCESS;
+        }
         deliverBroadcast(intent,(String)args[2],(Integer)args[4],(String)args[5],(android.os.Bundle)args[6],permissions,user,false);
         if(SdKernelServices.enabled())SdRemoteServices.broadcast(intent,(String)args[2],(Integer)args[4],(String)args[5],(android.os.Bundle)args[6],permissions,user);
         return ActivityManager.BROADCAST_SUCCESS;
@@ -414,8 +418,7 @@ public final class SdActivityManagerService implements InvocationHandler {
         if ("getMemoryInfo".equals(name)) { memoryInfo((ActivityManager.MemoryInfo)args[0]);return null; }
         if ("getProcessMemoryInfo".equals(name))return processMemory((int[])args[0]);
         if ("getContentProvider".equals(name)) {
-            int authorityIndex=android.os.Build.VERSION.SDK_INT>=29?2:1;
-            return SdContentProviders.acquire((String)args[authorityIndex],(Integer)args[authorityIndex+1]);
+            return SdContentProviders.acquire((String)args[1],(Integer)args[2]);
         }
         if ("publishContentProviders".equals(name)) {
             SdContentProviders.publish((java.util.List<android.app.ContentProviderHolder>)args[1]);return null;

@@ -39,19 +39,22 @@ def rpm_install_scripts(release_id):
     preflight = '''import os
 from pathlib import Path
 release = %r
+roots = (str(Path(release).parent) + '/', %r + '/')
 busy = []
 for process in Path('/proc').iterdir():
     if not process.name.isdigit():
         continue
     try:
         executable = os.readlink(process / 'exe').removesuffix(' (deleted)')
-        if executable.startswith(release + '/'):
+        if executable.startswith(release + '/') or (
+                executable.startswith(roots)
+                and Path(executable).name in ('saildroid-host', 'saildroid-app', 'dalvikvm', 'dalvikvm-real')):
             busy.append(process.name)
-    except (FileNotFoundError, ProcessLookupError):
+    except (FileNotFoundError, ProcessLookupError, PermissionError):
         pass
 if busy:
     raise SystemExit('Close SailDroid before updating this runtime. Processes: ' + ', '.join(busy))
-''' % release
+''' % (release, LEGACY_RELEASES)
     return {'preinstall': '/usr/bin/python3 -c ' + shlex.quote(preflight),
             'posttrans': shlex.quote(release + '/bin/saildroid-setup') + ' activate ' + shlex.quote(release_id)}
 
@@ -519,7 +522,7 @@ class Setup:
                     and release in path.resolve().parents, 'Payload symlink escapes release: ' + relative)
             require(path.lstat().st_uid == 0, 'Untrusted payload symlink')
         runtime = document(release / 'runtime.json')
-        require(runtime.get('api') in (28, 29) and runtime.get('native_host') is True, 'Only the native API28/API29 bootstrap is supported')
+        require(runtime.get('api') == 28 and runtime.get('native_host') is True, 'Only the native API28 bootstrap is supported')
         for required in ('libexec/saildroid-app', 'libexec/saildroid-host', 'bin/dalvikvm', 'share/manager.apk'):
             require(required in files, 'Required native installation entry is absent: ' + required)
         if not legacy:

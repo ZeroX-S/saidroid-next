@@ -69,7 +69,7 @@ int main() {
         Java_SdAudio_nativeInstall(&environment, &bridge, &audio_track);
         check(registrations[&audio_track].size() == 1,
               "API28 AudioTrack channel registration changed");
-        check(registrations[&audio_system].size() == 6,
+        check(registrations[&audio_system].size() == 7 && registrations[&audio_system].count("getDeviceConnectionState") == 1,
               "Missing primary output JNI registration");
         check(!registrations[&audio_system].count("native_get_FCC_8"),
               "API28 channel getter was moved to AudioSystem");
@@ -91,7 +91,7 @@ int main() {
         pending_exception = false;
         registrations.clear();
         Java_SdAudio_nativeInstall(&environment, &bridge, &audio_system);
-        check(registrations[&audio_system].size() == 7 && registrations[&audio_track].empty(),
+        check(registrations[&audio_system].size() == 8 && registrations[&audio_track].empty(),
               "API29 channel owner compatibility changed");
         check(call(&environment, &audio_system, "native_get_FCC_8") == 8,
               "API29 channel constant callback changed");

@@ -1,7 +1,0 @@
-{
-  "scope": "Remove app-specific MMKV preload from platform entrypoint; app code uses its existing System.loadLibrary path with real defining ClassLoader. Parsed APK target/debug policy, core SDK check, native loader and APK unchanged. Shared frozen source kept byte-identical; variant built into isolated runtime overlay.",
-  "baseline_source": "scripts/device/SdRuntime.java",
-  "baseline_sha256": "d3eb6cd1a51a5315348a9427b1b1c345bcba75d10b7093ea69bf5f20764ab245",
-  "variant_sha256": "c96e62e666837ee82174f17ee650c644a2f1a8e612c5cbe5259d06e821e276fc",
-  "patch_sha256": "7fd258a0dbfbd233de6d28841885984f7c4eb51283455468d72bf6b3d84ce752"
-}

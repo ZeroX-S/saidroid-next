@@ -1,6 +1,0 @@
-{
-  "baseline": "scripts/device/SdWindowSession.java",
-  "baseline_sha256": "3fa50d9c955dd54d7dcdd8d0590d0947e9a519deb2cf7ba716681eb5dfddf36d",
-  "candidate_sha256": "c902e10d14220439c621153ca2319bf12c1f760751e909198499a084d2456a55",
-  "scope": "Legacy IME resize notifications and per-window gesture exclusion metadata. Host edge gestures remain unchanged."
-}

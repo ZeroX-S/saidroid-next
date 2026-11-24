@@ -1,9 +1,0 @@
-from pathlib import Path
-import ctypes,json,struct
-class Mpfr(ctypes.Structure):_fields_=[('precision',ctypes.c_long),('sign',ctypes.c_int),('exponent',ctypes.c_long),('limbs',ctypes.c_void_p)]
-m=ctypes.CDLL('libmpfr.so.6');m.mpfr_init2.argtypes=[ctypes.POINTER(Mpfr),ctypes.c_long];m.mpfr_clear.argtypes=[ctypes.POINTER(Mpfr)];m.mpfr_set_d.argtypes=[ctypes.POINTER(Mpfr),ctypes.c_double,ctypes.c_int];m.mpfr_get_d.argtypes=[ctypes.POINTER(Mpfr),ctypes.c_int];m.mpfr_get_d.restype=ctypes.c_double;a=Mpfr();b=Mpfr();m.mpfr_init2(ctypes.byref(a),4096);m.mpfr_init2(ctypes.byref(b),4096);bits=lambda v:struct.unpack('<Q',struct.pack('<d',v))[0];rows=[]
-try:
- for name,x,z in [('sin',7.340960437735089E288,0.0),('cos',7.340960437735089E288,0.0),('tan',5.319372648326541E255,0.0),('cbrt',-8.605787237358564E307,0.0),('pow',3.0000000000000004,2.1)]:
-  op=getattr(m,'mpfr_'+name);op.argtypes=[ctypes.POINTER(Mpfr),ctypes.POINTER(Mpfr)]+([ctypes.POINTER(Mpfr)]if name=='pow'else[])+[ctypes.c_int];m.mpfr_set_d(ctypes.byref(a),x,0);c=Mpfr();m.mpfr_init2(ctypes.byref(c),4096);m.mpfr_set_d(ctypes.byref(c),z,0);op(ctypes.byref(b),ctypes.byref(a),*([ctypes.byref(c)]if name=='pow'else[]),0);m.mpfr_clear(ctypes.byref(c));y=m.mpfr_get_d(ctypes.byref(b),0);rows.append(dict(function=name,input=x,input_bits=format(bits(x),'x'),exponent_bits=format(bits(z),'x'),output=y,output_bits=format(bits(y),'x')))
- p=Path('/media/psf/Home/WorkSpace/saidroid-next/build/evidence/cts-frame-repair-20261031/math-precision240-original-input-oracle-v1.json');assert not p.exists();p.write_text(json.dumps(dict(scope='IndependentMPFR4096 originalexactbinary64counterexample pluscos sameinput, nothardcodedtestoutput inproduct.',rows=rows,property=';'.join(r['input_bits']+','+r['exponent_bits']+','+r['output_bits']for r in rows)),indent=2)+'\n');print(p.read_text())
-finally:m.mpfr_clear(ctypes.byref(a));m.mpfr_clear(ctypes.byref(b))

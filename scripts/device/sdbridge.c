@@ -22,44 +22,27 @@ static void*   g_handle = NULL;
 static void*   g_private_libc = NULL;
 static char    g_libdir[1024] = {0};
 static char    g_system_root[1024] = "/home/art";
-static jclass software_graphics_class;
-static jmethodID configure_shader_cache;
-static int framework_api = 28;
 static jclass namespace_class;
 static jmethodID bind_namespace;
-static jstring classloader_namespace(JNIEnv *env,jclass cls,jobject loader,jint sdk,jstring libraries,jstring permitted,jboolean shared,jstring dex){
-    (void)cls;return (jstring)(*env)->CallStaticObjectMethod(env,namespace_class,bind_namespace,loader,sdk,libraries,permitted,shared,dex);
-}
 static jstring classloader_namespace28(JNIEnv *env,jclass cls,jobject loader,jint sdk,jstring libraries,jstring permitted,jboolean shared,jboolean vendor){
     (void)cls;return (jstring)(*env)->CallStaticObjectMethod(env,namespace_class,bind_namespace,loader,sdk,libraries,permitted,shared,vendor);
 }
 JNIEXPORT jboolean JNICALL Java_SdBridge_installClassLoaderNamespaces(JNIEnv *env,jclass cls){
-    (void)cls;if(framework_api<28)return JNI_FALSE;
+    (void)cls;
     namespace_class=(*env)->NewGlobalRef(env,(*env)->FindClass(env,"SdClassLoaderNamespaces"));if(!namespace_class)return JNI_FALSE;
-    if(framework_api==28){
-        bind_namespace=(*env)->GetStaticMethodID(env,namespace_class,"bindLegacy","(Ljava/lang/ClassLoader;ILjava/lang/String;Ljava/lang/String;ZZ)Ljava/lang/String;");if(!bind_namespace)return JNI_FALSE;
-        JNINativeMethod methods[]={{"createClassloaderNamespace","(Ljava/lang/ClassLoader;ILjava/lang/String;Ljava/lang/String;ZZ)Ljava/lang/String;",classloader_namespace28}};
-        return (*env)->RegisterNatives(env,(*env)->FindClass(env,"com/android/internal/os/ClassLoaderFactory"),methods,1)==0?JNI_TRUE:JNI_FALSE;
-    }
-    bind_namespace=(*env)->GetStaticMethodID(env,namespace_class,"bind","(Ljava/lang/ClassLoader;ILjava/lang/String;Ljava/lang/String;ZLjava/lang/String;)Ljava/lang/String;");if(!bind_namespace)return JNI_FALSE;
-    JNINativeMethod methods[]={{"createClassloaderNamespace","(Ljava/lang/ClassLoader;ILjava/lang/String;Ljava/lang/String;ZLjava/lang/String;)Ljava/lang/String;",classloader_namespace}};
+    bind_namespace=(*env)->GetStaticMethodID(env,namespace_class,"bindLegacy","(Ljava/lang/ClassLoader;ILjava/lang/String;Ljava/lang/String;ZZ)Ljava/lang/String;");if(!bind_namespace)return JNI_FALSE;
+    JNINativeMethod methods[]={{"createClassloaderNamespace","(Ljava/lang/ClassLoader;ILjava/lang/String;Ljava/lang/String;ZZ)Ljava/lang/String;",classloader_namespace28}};
     return (*env)->RegisterNatives(env,(*env)->FindClass(env,"com/android/internal/os/ClassLoaderFactory"),methods,1)==0?JNI_TRUE:JNI_FALSE;
 }
 
 static bool private_system_font_path(char **path) {
-    return framework_api>=29?saidroid_private_api29_path(g_system_root,path):saidroid_private_font_path(g_system_root, path);
+    return saidroid_private_font_path(g_system_root, path);
 }
 
 /* The standalone service registry has only in-process Binder endpoints. Identity
  * is the real Linux process, and there is no kernel transaction queue to flush.
  * Keep native Binder object/Parcel lifetime management from Android itself. */
 static __thread jint local_strict_policy;
-static __thread jint local_work_source=-1;
-static jboolean local_is_handling(JNIEnv *env,jclass cls){(void)env;(void)cls;return JNI_FALSE;}
-static jint local_get_work_source(JNIEnv *env,jclass cls){(void)env;(void)cls;return local_work_source;}
-static jlong local_set_work_source(JNIEnv *env,jclass cls,jint uid){(void)env;(void)cls;jint previous=local_work_source;local_work_source=uid;return previous;}
-static jlong local_clear_work_source(JNIEnv *env,jclass cls){return local_set_work_source(env,cls,-1);}
-static void local_restore_work_source(JNIEnv *env,jclass cls,jlong token){(void)env;(void)cls;local_work_source=(jint)token;}
 static jint local_calling_pid(JNIEnv *env, jclass cls) { (void)env; (void)cls; return getpid(); }
 static jint local_calling_uid(JNIEnv *env, jclass cls) { (void)env; (void)cls; return getuid(); }
 static jlong local_clear_identity(JNIEnv *env, jclass cls) { (void)env; (void)cls; return ((jlong)getuid()<<32)|(uint32_t)getpid(); }
@@ -81,11 +64,6 @@ static int register_local_binder(JNIEnv *env) {
         {"flushPendingCommands","()V",local_flush},
         {"blockUntilThreadAvailable","()V",local_pool_unsupported}};
     if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Binder"),methods,sizeof(methods)/sizeof(methods[0]))<0)return -1;
-    if(framework_api<28){JNINativeMethod pool[]={{"joinThreadPool","()V",local_pool_unsupported}};if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Binder"),pool,1)<0)return -1;}
-    if(framework_api>=29){
-        JNINativeMethod attribution[]={{"isHandlingTransaction","()Z",local_is_handling},{"getCallingWorkSourceUid","()I",local_get_work_source},{"setCallingWorkSourceUid","(I)J",local_set_work_source},{"clearCallingWorkSource","()J",local_clear_work_source},{"restoreCallingWorkSource","(J)V",local_restore_work_source}};
-        if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Binder"),attribution,sizeof(attribution)/sizeof(attribution[0]))<0)return -1;
-    }
     JNINativeMethod internal[]={{"handleGc","()V",local_flush},{"joinThreadPool","()V",local_pool_unsupported},{"getContextObject","()Landroid/os/IBinder;",local_context_unsupported}};
     return (*env)->RegisterNatives(env,(*env)->FindClass(env,"com/android/internal/os/BinderInternal"),internal,sizeof(internal)/sizeof(internal[0]));
 }
@@ -112,10 +90,6 @@ static void standalone_process_name(JNIEnv *env,jclass cls,jstring value) {
     }
     prctl(PR_SET_NAME,(unsigned long)(length>15?name+length-15:name),0,0,0);
     (*env)->ReleaseStringUTFChars(env,value,name);
-}
-static void software_shader_cache(JNIEnv *env,jclass cls,jstring path) {
-    (void)cls;
-    (*env)->CallStaticVoidMethod(env,software_graphics_class,configure_shader_cache,path);
 }
 
 /* Host ABI bridges belong exclusively on glibc's library path. Loading a second
@@ -309,15 +283,8 @@ Java_SdBridge_loadBionicLibrary(JNIEnv* env, jclass cls, jstring jpath, jstring 
         {"inetAddressClass","java/net/InetAddress"},{"inet6AddressClass","java/net/Inet6Address"},
         {"inetSocketAddressClass","java/net/InetSocketAddress"},{NULL,NULL}
     };
-    void (*initialize_modern_constants)(JNIEnv *) = bsym(h,"_ZN12JniConstants32EnsureClassReferencesInitializedEP7_JNIEnv");
     void (*initialize_api28_constants)(JNIEnv *) = bsym(h,"_ZN12JniConstants4initEP7_JNIEnv");
-    if (initialize_modern_constants) {
-        framework_api = 29;
-        initialize_modern_constants(env);
-        if ((*env)->ExceptionCheck(env)) return JNI_FALSE;
-        fprintf(stderr,"SDBRIDGE JNI cache=API%d nativehelper\n",framework_api);
-    } else if (initialize_api28_constants) {
-        framework_api = 28;
+    if (initialize_api28_constants) {
         initialize_api28_constants(env);
         if ((*env)->ExceptionCheck(env)) return JNI_FALSE;
         fprintf(stderr,"SDBRIDGE JNI cache=API28 nativehelper\n");
@@ -351,103 +318,6 @@ Java_SdBridge_loadBionicLibrary(JNIEnv* env, jclass cls, jstring jpath, jstring 
     return JNI_TRUE;
 }
 
-
-/* Android 的框架 natives 由 app_process 逐个调用 register_android_* 完成注册，
- * libandroid_runtime.so 本身不导出 JNI_OnLoad。这里照同样方式注册常用模块。 */
-static const char* kRegEntryPoints[] = {
-    "_ZN7android25register_android_util_LogEP7_JNIEnv",
-    "_ZN7android30register_android_util_EventLogEP7_JNIEnv",
-    "_ZN7android31register_android_os_SystemClockEP7_JNIEnv",
-    "_ZN7android36register_android_os_SystemPropertiesEP7_JNIEnv",
-    "_ZN7android25register_android_os_TraceEP7_JNIEnv",
-    "_Z27register_android_os_ProcessP7_JNIEnv",
-    "_ZN7android32register_android_os_FileObserverEP7_JNIEnv",
-    "_ZN7android25register_android_os_DebugEP7_JNIEnv",
-    "_ZN7android30register_android_os_MemoryFileEP7_JNIEnv",
-    "_ZN7android33register_android_view_InputDeviceEP7_JNIEnv",
-    "_ZN7android37register_android_view_KeyCharacterMapEP7_JNIEnv",
-    "_ZN7android47register_android_animation_PropertyValuesHolderEP7_JNIEnv",
-    "_ZN7android32register_android_os_MessageQueueEP7_JNIEnv",
-    "_ZN7android34register_android_view_InputChannelEP7_JNIEnv",
-    "_ZN7android38register_android_view_InputEventSenderEP7_JNIEnv",
-    "_ZN7android40register_android_view_InputEventReceiverEP7_JNIEnv",
-    /* Binder/Parcel：ActivityThread 构造要先 new ApplicationThread -> new Binder -> init()，
-     * 所以 Binder 的 natives 必须先注册。之前因为没有 Binder.onBinderStrictModePolicyChange
-     * （Android 7.0 才加进 Java 类）导致整个注册 abort，才把它从列表里去掉；
-     * 现在框架侧已经把这个方法补进去了。 */
-    "_Z26register_android_os_BinderP7_JNIEnv",
-    /* Parcel：BaseBundle.<clinit> 就会 Parcel.obtain()，
-     * 所以 Instrumentation / ActivityThread.attach 离不开它。
-     * Java 侧的 nativeSetDataSize 已按本库注册表改成 (JI)V。 */
-    "_ZN7android26register_android_os_ParcelEP7_JNIEnv",
-    /* Actual API23 SQLite implementation, including CursorWindow queries. */
-    "_ZN7android38register_android_database_CursorWindowEP7_JNIEnv",
-    "_ZN7android38register_android_database_SQLiteGlobalEP7_JNIEnv",
-    "_ZN7android37register_android_database_SQLiteDebugEP7_JNIEnv",
-    "_ZN7android42register_android_database_SQLiteConnectionEP7_JNIEnv",
-    "_ZN7android33register_android_content_AssetManagerEP7_JNIEnv",
-    "_ZN7android33register_android_content_XmlBlockEP7_JNIEnv",
-    "_Z33register_android_content_AssetManagerP7_JNIEnv",
-    /* 真实符号是 36，不是 34；读资源字符串要用它 */
-    "_ZN7android36register_android_content_StringBlockEP7_JNIEnv",
-    "_ZN7android32register_android_util_StringBlockP7_JNIEnv",
-    "_Z34register_android_graphics_GraphicsP7_JNIEnv",
-    "_Z31register_android_graphics_MovieP7_JNIEnv",
-    "_Z32register_android_graphics_BitmapP7_JNIEnv",
-    "_Z32register_android_graphics_CameraP7_JNIEnv",
-    "_Z32register_android_graphics_ShaderP7_JNIEnv",
-    "_Z34register_android_graphics_TypefaceP7_JNIEnv",
-    "_Z34register_android_graphics_YuvImageP7_JNIEnv",
-    "_Z35register_android_graphics_NinePatchP7_JNIEnv",
-    "_Z36register_android_graphics_MaskFilterP7_JNIEnv",
-    "_Z36register_android_graphics_PathEffectP7_JNIEnv",
-    "_Z38register_android_graphics_InterpolatorP7_JNIEnv",
-    "_Z39register_android_graphics_BitmapFactoryP7_JNIEnv",
-    "_ZN7android33register_android_view_MotionEventEP7_JNIEnv",
-    "_ZN7android30register_android_view_KeyEventEP7_JNIEnv",
-    "_ZN7android35register_android_emoji_EmojiFactoryEP7_JNIEnv",
-    "_ZN7android38register_android_text_AndroidCharacterEP7_JNIEnv",
-    "_ZN7android33register_android_text_AndroidBidiEP7_JNIEnv",
-    "_ZN7android34register_android_text_StaticLayoutEP7_JNIEnv",
-    "_ZN7android37register_android_view_VelocityTrackerEP7_JNIEnv",
-    "_ZN7android33register_android_view_PointerIconEP7_JNIEnv",
-    "_Z45register_android_graphics_BitmapRegionDecoderP7_JNIEnv",
-    "_Z55register_android_graphics_CreateJavaOutputStreamAdaptorP7_JNIEnv",
-    "_ZN7android30register_android_graphics_PathEP7_JNIEnv",
-    "_ZN7android31register_android_graphics_PaintEP7_JNIEnv",
-    "_ZN7android32register_android_graphics_CanvasEP7_JNIEnv",
-    "_ZN7android32register_android_graphics_MatrixEP7_JNIEnv",
-    "_ZN7android32register_android_graphics_RegionEP7_JNIEnv",
-    "_ZN7android33register_android_graphics_PictureEP7_JNIEnv",
-    "_ZN7android34register_android_graphics_XfermodeEP7_JNIEnv",
-    /* View 构造里 View.<init> 会 RenderNode.create()，这是硬件渲染层的入口。
-     * 换成真实的 libhwui 之后（替身只有 13 个符号，根本提供不了 RenderNode），
-     * 这两个必须注册。ThreadedRenderer 走 GL，暂时不开。 */
-    "_ZN7android32register_android_view_RenderNodeEP7_JNIEnv",
-    "_ZN7android40register_android_view_RenderNodeAnimatorEP7_JNIEnv",
-    "_ZN7android39register_android_view_DisplayListCanvasEP7_JNIEnv",
-    "_ZN7android38register_android_view_ThreadedRendererEP7_JNIEnv",
-    "_ZN7android36register_android_graphics_DrawFilterEP7_JNIEnv",
-    "_ZN7android36register_android_graphics_FontFamilyEP7_JNIEnv",
-    "_ZN7android36register_android_graphics_PorterDuffEP7_JNIEnv",
-    "_ZN7android36register_android_graphics_RasterizerEP7_JNIEnv",
-    "_ZN7android37register_android_graphics_ColorFilterEP7_JNIEnv",
-    "_ZN7android37register_android_graphics_PathMeasureEP7_JNIEnv",
-    "_ZN7android39register_android_graphics_pdf_PdfEditorEP7_JNIEnv",
-    "_ZN7android40register_android_graphics_CanvasPropertyEP7_JNIEnv",
-    "_ZN7android40register_android_graphics_SurfaceTextureEP7_JNIEnv",
-    "_ZN7android41register_android_graphics_LayerRasterizerEP7_JNIEnv",
-    "_ZN7android41register_android_graphics_pdf_PdfDocumentEP7_JNIEnv",
-    "_ZN7android41register_android_graphics_pdf_PdfRendererEP7_JNIEnv",
-    "_ZN7android37register_android_content_AssetManagerEP7_JNIEnv",
-    NULL
-};
-
-
-static const char *kRegEntryPoints29[] = {
-#include "../../native/api29-jni-entries.inc"
-    NULL
-};
 static const char *kRegEntryPoints28[] = {
 #include "../../native/api28-jni-entries.inc"
     NULL
@@ -496,11 +366,10 @@ Java_SdBridge_registerFrameworkNatives(JNIEnv* env, jclass cls) {
     bionic_dlsym_t bsym = (bionic_dlsym_t) dlsym(dl, "bionic_dlsym");
     if (!bsym) return -3;
     int ok = 0, missing = 0;
-    const char **entries=framework_api>=29?kRegEntryPoints29:
-        framework_api==28?kRegEntryPoints28:kRegEntryPoints;
+    const char **entries = kRegEntryPoints28;
     for (int i = 0; entries[i]; ++i) {
         void* fn = bsym(g_handle, entries[i]);
-        if (!fn) { missing++; if(framework_api>=28)return -10;continue; }
+        if (!fn) { missing++; return -10; }
         int (*reg)(JNIEnv*) = (int (*)(JNIEnv*)) fn;
         int r = reg(env);
         if ((*env)->ExceptionCheck(env)) {
@@ -516,35 +385,26 @@ Java_SdBridge_registerFrameworkNatives(JNIEnv* env, jclass cls) {
     if (!sd_private_binder_active()&&register_local_binder(env) < 0) return -4;
     JNINativeMethod naming[]={{"setArgV0","(Ljava/lang/String;)V",standalone_process_name}};
     if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Process"),naming,1)<0)return -5;
-    if(framework_api>=28){
-        if(sd_memory_install(env)<0)return -17;
-        if(sd_event_log_install(env,sd_lookup_android)<0)return -18;
-        fprintf(stderr,"SDEVENTLOG=ready|backend=app-private-file|encoder=android-liblog|capacity=1048576|system_logd=false\n");
-        if(getenv("SAILDROID_ANDROID_LOG_STDERR")){
-            JNINativeMethod logging={"println_native","(IILjava/lang/String;Ljava/lang/String;)I",application_log_stderr};
-            if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/util/Log"),&logging,1)<0)return -16;
-        }
-        exchange_fd_owner=dlsym(RTLD_DEFAULT,"bionic_android_fdsan_exchange_owner_tag");
-        if(!exchange_fd_owner)return -14;
-        JNINativeMethod ownership={"exchangeOwnerTag","(IJJ)V",core_exchange_fd_owner};
-        if((*env)->RegisterNatives(env,(*env)->FindClass(env,"libcore/io/IoUtils"),&ownership,1)<0)return -15;
-        JNINativeMethod heap={"getUnreachableMemory","(IZ)Ljava/lang/String;",unavailable_unreachable_memory};
-        if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Debug"),&heap,1)<0)return -13;
-        jclass timezone = (*env)->FindClass(env, "SdTimeZone");
-        if (!timezone) return -19;
-        jmethodID install_timezone = (*env)->GetStaticMethodID(env, timezone, "install", "()V");
-        if (!install_timezone) return -19;
-        (*env)->CallStaticVoidMethod(env, timezone, install_timezone);
-        (*env)->DeleteLocalRef(env, timezone);
-        if ((*env)->ExceptionCheck(env)) return -19;
-        return ok;
+    if(sd_memory_install(env)<0)return -17;
+    if(sd_event_log_install(env,sd_lookup_android)<0)return -18;
+    fprintf(stderr,"SDEVENTLOG=ready|backend=app-private-file|encoder=android-liblog|capacity=1048576|system_logd=false\n");
+    if(getenv("SAILDROID_ANDROID_LOG_STDERR")){
+        JNINativeMethod logging={"println_native","(IILjava/lang/String;Ljava/lang/String;)I",application_log_stderr};
+        if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/util/Log"),&logging,1)<0)return -16;
     }
-    JNINativeMethod cache[]={{"setupShadersDiskCache","(Ljava/lang/String;)V",software_shader_cache}};
-    software_graphics_class=(*env)->NewGlobalRef(env,(*env)->FindClass(env,"SdSoftwareGraphics"));
-    if(!software_graphics_class)return -6;
-    configure_shader_cache=(*env)->GetStaticMethodID(env,software_graphics_class,"configureShaderCache","(Ljava/lang/String;)V");
-    if(!configure_shader_cache)return -6;
-    if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/view/ThreadedRenderer"),cache,1)<0)return -6;
+    exchange_fd_owner=dlsym(RTLD_DEFAULT,"bionic_android_fdsan_exchange_owner_tag");
+    if(!exchange_fd_owner)return -14;
+    JNINativeMethod ownership={"exchangeOwnerTag","(IJJ)V",core_exchange_fd_owner};
+    if((*env)->RegisterNatives(env,(*env)->FindClass(env,"libcore/io/IoUtils"),&ownership,1)<0)return -15;
+    JNINativeMethod heap={"getUnreachableMemory","(IZ)Ljava/lang/String;",unavailable_unreachable_memory};
+    if((*env)->RegisterNatives(env,(*env)->FindClass(env,"android/os/Debug"),&heap,1)<0)return -13;
+    jclass timezone = (*env)->FindClass(env, "SdTimeZone");
+    if (!timezone) return -19;
+    jmethodID install_timezone = (*env)->GetStaticMethodID(env, timezone, "install", "()V");
+    if (!install_timezone) return -19;
+    (*env)->CallStaticVoidMethod(env, timezone, install_timezone);
+    (*env)->DeleteLocalRef(env, timezone);
+    if ((*env)->ExceptionCheck(env)) return -19;
     return ok;
 }
 
@@ -612,12 +472,7 @@ Java_SdBridge_checkGraphicsInit(JNIEnv* env, jclass cls) {
     jclass c = (*env)->FindClass(env, "android/graphics/Bitmap"); CLR();
     APP("Bitmap=%p", (void*)c);
     jfieldID f = (*env)->GetFieldID(env, c, "mNativePtr", "J"); CLR(); APP(" mNativePtr=%p", (void*)f);
-    jmethodID m;
-    if (framework_api == 28) {
-        m = (*env)->GetMethodID(env, c, "<init>", "(JIIIZZ[BLandroid/graphics/NinePatch$InsetStruct;)V");
-    } else {
-        m = (*env)->GetMethodID(env, c, "<init>", "(JIIIZ[BLandroid/graphics/NinePatch$InsetStruct;Z)V");
-    }
+    jmethodID m = (*env)->GetMethodID(env, c, "<init>", "(JIIIZZ[BLandroid/graphics/NinePatch$InsetStruct;)V");
     CLR(); APP(" ctor=%p", (void*)m);
     m = (*env)->GetMethodID(env, c, "reinit", "(IIZ)V"); CLR(); APP(" reinit=%p", (void*)m);
     m = (*env)->GetMethodID(env, c, "getAllocationByteCount", "()I"); CLR(); APP(" allocCount=%p", (void*)m);
@@ -819,26 +674,15 @@ done:
 
 /* GraphicsEnvironment describes the actual software producer in this host. */
 static jclass graphics_environment;
-static jmethodID graphics_can_load,graphics_layers,graphics_debug,graphics_stats,graphics_driver,graphics_angle,graphics_hint;
-static jint graphics_can_load_system(JNIEnv *e,jclass c){(void)c;return (*e)->CallStaticIntMethod(e,graphics_environment,graphics_can_load);}
+static jmethodID graphics_layers,graphics_debug;
 static void graphics_layer_paths(JNIEnv *e,jclass c,jobject loader,jstring paths){(void)c;(*e)->CallStaticVoidMethod(e,graphics_environment,graphics_layers,loader,paths);}
 static void graphics_debug_layers(JNIEnv *e,jclass c,jstring value){(void)c;(*e)->CallStaticVoidMethod(e,graphics_environment,graphics_debug,value,JNI_FALSE);}
-static void graphics_debug_gles(JNIEnv *e,jclass c,jstring value){(void)c;(*e)->CallStaticVoidMethod(e,graphics_environment,graphics_debug,value,JNI_TRUE);}
-static void graphics_gpu_stats(JNIEnv *e,jclass c,jstring driver,jstring version,jlong code,jlong time,jstring app,jint vulkan){(void)c;(*e)->CallStaticVoidMethod(e,graphics_environment,graphics_stats,driver,version,code,time,app,vulkan);}
-static void graphics_driver_paths(JNIEnv *e,jclass c,jstring path,jstring sphal){(void)c;(*e)->CallStaticVoidMethod(e,graphics_environment,graphics_driver,path,sphal);}
-static jboolean graphics_use_angle(JNIEnv *e,jclass c,jstring app){(void)c;return (*e)->CallStaticBooleanMethod(e,graphics_environment,graphics_angle,app);}
-static void graphics_launch_hint(JNIEnv *e,jclass c){(void)c;(*e)->CallStaticVoidMethod(e,graphics_environment,graphics_hint);}
 JNIEXPORT jboolean JNICALL Java_SdBridge_installGraphicsEnvironment(JNIEnv *e,jclass cls){
     (void)cls;graphics_environment=(*e)->NewGlobalRef(e,(*e)->FindClass(e,"SdGraphicsEnvironment"));if(!graphics_environment)return JNI_FALSE;
-#define METHOD(name,signature) (*e)->GetStaticMethodID(e,graphics_environment,name,signature)
-    graphics_can_load=METHOD("canLoadSystemLibraries","()I");graphics_layers=METHOD("layers","(Ljava/lang/ClassLoader;Ljava/lang/String;)V");graphics_debug=METHOD("debug","(Ljava/lang/String;Z)V");graphics_stats=METHOD("stats","(Ljava/lang/String;Ljava/lang/String;JJLjava/lang/String;I)V");graphics_driver=METHOD("driver","(Ljava/lang/String;Ljava/lang/String;)V");graphics_angle=METHOD("angle","(Ljava/lang/String;)Z");graphics_hint=METHOD("hint","()V");
-#undef METHOD
+    graphics_layers=(*e)->GetStaticMethodID(e,graphics_environment,"layers","(Ljava/lang/ClassLoader;Ljava/lang/String;)V");
+    graphics_debug=(*e)->GetStaticMethodID(e,graphics_environment,"debug","(Ljava/lang/String;Z)V");
     if((*e)->ExceptionCheck(e))return JNI_FALSE;
-    if(framework_api==28){
-        JNINativeMethod methods[]={{"setLayerPaths","(Ljava/lang/ClassLoader;Ljava/lang/String;)V",graphics_layer_paths},{"setDebugLayers","(Ljava/lang/String;)V",graphics_debug_layers}};
-        return (*e)->RegisterNatives(e,(*e)->FindClass(e,"android/os/GraphicsEnvironment"),methods,sizeof(methods)/sizeof(methods[0]))==0?JNI_TRUE:JNI_FALSE;
-    }
-    JNINativeMethod methods[]={{"getCanLoadSystemLibraries","()I",graphics_can_load_system},{"setLayerPaths","(Ljava/lang/ClassLoader;Ljava/lang/String;)V",graphics_layer_paths},{"setDebugLayers","(Ljava/lang/String;)V",graphics_debug_layers},{"setDebugLayersGLES","(Ljava/lang/String;)V",graphics_debug_gles},{"setGpuStats","(Ljava/lang/String;Ljava/lang/String;JJLjava/lang/String;I)V",graphics_gpu_stats},{"setDriverPathAndSphalLibraries","(Ljava/lang/String;Ljava/lang/String;)V",graphics_driver_paths},{"getShouldUseAngle","(Ljava/lang/String;)Z",graphics_use_angle},{"hintActivityLaunch","()V",graphics_launch_hint}};
+    JNINativeMethod methods[]={{"setLayerPaths","(Ljava/lang/ClassLoader;Ljava/lang/String;)V",graphics_layer_paths},{"setDebugLayers","(Ljava/lang/String;)V",graphics_debug_layers}};
     return (*e)->RegisterNatives(e,(*e)->FindClass(e,"android/os/GraphicsEnvironment"),methods,sizeof(methods)/sizeof(methods[0]))==0?JNI_TRUE:JNI_FALSE;
 }
 /* Explicit VM diagnostic only: preserve exit status and expose its Java caller. */

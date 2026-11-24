@@ -1,46 +1,36 @@
-# Port compatibility regression checks
+# Port and runtime compatibility regression checks
 
-Run these checks in an aarch64 Linux build VM with the fixed API29 inputs and
-JDK described in [BUILD.md](BUILD.md). They do not contact a phone.
+Run these isolated checks in a Linux build environment with JDK 21, `aidl`, `gcc`/`g++`, `pkg-config`, and the pinned API 28 inputs described in [BUILD.md](BUILD.md). They do not contact a phone.
 
 ```sh
 python3 scripts/api29/tests/check-hardware-identity.py
 python3 scripts/api29/tests/test-webview-geometry-vm.py \
-  --android-jar build/codex-api29/inputs/android-all-10-robolectric-5803371.jar
+  --android-jar build/inputs/android-all-9-robolectric-4913185-2.jar
 python3 scripts/api29/tests/test-native-loader-vm.py
-python3 scripts/api29/build-product.py build/codex-api29/inputs /new/output/product
+python3 scripts/api28/tests/check-audio-output-registration.py --jni-include "$JAVA_HOME/include"
+python3 scripts/api28/tests/check-audio-sink-metadata.py --jni-include "$JAVA_HOME/include"
+python3 scripts/api28/tests/check-component-identity.py --jni-include "$JAVA_HOME/include"
+python3 -m unittest discover -s scripts/compat/tests
+for test in \
+  test-process-startup.py \
+  test-activity-clear-top.py \
+  test-document-picker-render.py \
+  test-explicit-broadcast-dispatch.py \
+  test-popup-touch-target.py; do
+  python3 "scripts/api29/tests/$test"
+done
+python3 scripts/api29/build-product.py build/inputs /tmp/saidroid-product-check --compat-only
 ```
 
-Initialize the pinned submodules and apply their verified patches before the
-product build. The geometry check compiles the production Java sizing and
-touch-packet code, then passes its packets to the production native coordinate
-mapping function. It checks the default viewport, supported tall viewports,
-1080x2340, QHD, a 1600x2560 tablet viewport, landscape and integer extremes,
-as well as input consumed after a resize, old clients without View extents and
-moves outside the View. Host
-dimensions and the 33.75 MiB frame budget (`2160 * 4096 * 4`) must both hold.
-Supported viewports retain their requested dimensions.
+Initialize the pinned submodules and apply their verified patches (`python3 tools/apply-third-party-patches.py`) before running the product build or native host checks.
 
-The loader check compiles the production loader against small guest-linker and
-ART-library stand-ins. It covers all four ART library names on API28 and
-non-API28 bases, ordinary guest libraries, the separate FD-loader entry, error
-clearing and an unavailable guest linker. The API28 marker is simulated through
-a linker wrapper; the VM's `/system` is never modified.
+The geometry check compiles the production Java sizing and touch-packet code, then passes its packets to the production native coordinate mapping function. Host dimensions and the 33.75 MiB frame budget (`2160 * 4096 * 4`) must both hold, while supported viewports retain their requested dimensions.
 
-Also run the existing Binder and activation fixtures as root in the Linux VM
-under both `umask 022` and `umask 077`:
+The loader check compiles the production loader against small guest-linker and ART-library stand-ins. When root privileges are available in an isolated Linux VM (never on Sailfish OS), also run the Binder and activation fixtures under both `umask 022` and `umask 077`:
 
 ```sh
 python3 scripts/packaging/test-binder-setup.py
-python3 scripts/packaging/test-setup-vm.py --output /new/output/setup
+python3 scripts/packaging/test-setup-vm.py --output /tmp/saidroid-setup-check
 ```
 
-The 2026-11-08 PR2 validation passed the complete `build-product.py` compile
-(Java, D8, native libraries/host and Qt/WPE helper), 40 mapped-touch cases, both
-loader branches and the missing-linker case, the hardware identity checks, and
-10 Binder plus 35 activation fixtures under each umask (90 total).
-
-These are build and isolated contract checks. They do not prove page rendering
-or JNI registration on a real Android 9 device, and do not constitute a fresh
-full CTS run or a rebuilt/released RPM. Test actual bottom-of-page controls
-before and after resizing on each target port as part of device acceptance.
+These are build and isolated contract checks; test actual UI rendering, touch, audio, and WebView pages on each target Sailfish device before release acceptance.

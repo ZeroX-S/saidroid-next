@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert actual API 28/29 classes to DEX 039 with the standalone libcore.
+"""Convert actual API 28 classes to DEX 039 with the standalone libcore.
 
 Every class already supplied by standalone ART's libcore is excluded explicitly.
 Produces separate single-DEX boot JARs and an auditable inventory. Android's
@@ -7,10 +7,10 @@ normal lambda desugaring is required: its LambdaMetafactory is compile-time-only
 """
 from pathlib import Path
 import argparse,zipfile,subprocess,hashlib,json,os,struct
-p=argparse.ArgumentParser();p.add_argument('inputs',type=Path);p.add_argument('core',type=Path);p.add_argument('output',type=Path);p.add_argument('--source',type=Path);p.add_argument('--api',type=int,choices=(28,29),default=29)
+p=argparse.ArgumentParser();p.add_argument('inputs',type=Path);p.add_argument('core',type=Path);p.add_argument('output',type=Path);p.add_argument('--source',type=Path);p.add_argument('--api',type=int,choices=(28,),default=28)
 p.add_argument('--platform-dex',type=Path,action='append',default=[],help='Matching standard platform DEX with private paths relocated and standalone core classes excluded')
 args=p.parse_args()
-framework_inputs={28:('android-all-9-robolectric-4913185-2.jar','cf4aed5e458deb48ddc0ca92fc25156e6f478d9d5c1d948cdd1817a67ee11b32'),29:('android-all-10-robolectric-5803371.jar','a0ad701eedd47bdaefbac1c2cc80dd400c0adea3cccd8a3ad286f79da1ca294c')}
+framework_inputs={28:('android-all-9-robolectric-4913185-2.jar','cf4aed5e458deb48ddc0ca92fc25156e6f478d9d5c1d948cdd1817a67ee11b32')}
 framework_name,framework_hash=framework_inputs[args.api]
 source=args.source or (args.inputs/framework_name);r8=args.inputs/'r8-8.3.37.jar'
 if args.source is None:

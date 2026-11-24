@@ -1,7 +1,0 @@
-{
-  "scope": "Exact actualAndroid10 inputsystemimage hostsfile; canonical staticloopback config, no inferredtest-onlyaliases",
-  "image_sha256": "3292f3ab677b975e51566e53355ae9c268e17b86888a9a8b40f8e6c3372fc26c",
-  "source_path": "/system/etc/hosts",
-  "sha256": "425c3e713d5bae19b031bc8639c20c6a23e311a54647ba1824cbf45969a11ff4",
-  "bytes": 56
-}

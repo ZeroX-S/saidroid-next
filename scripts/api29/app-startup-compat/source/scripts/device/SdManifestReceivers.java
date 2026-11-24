@@ -54,12 +54,7 @@ public final class SdManifestReceivers {
                     if (endpoint != null && !endpoint.isBinderAlive()) endpoint = null;
                     if (endpoint == null) {
                         org.saildroid.host.HostApi.startReceiverProcess(SdApkPackage.NAME, info.name, info.processName);
-                        long deadline = SystemClock.uptimeMillis() + 30000;
-                        while ((endpoint = SdKernelServices.registry().checkService(name)) == null) {
-                            if (SystemClock.uptimeMillis() > deadline)
-                                throw new IllegalStateException("Receiver process startup deadline");
-                            Thread.sleep(50);
-                        }
+                        endpoint = SdProcessStartup.awaitEndpoint(name, "Receiver process startup deadline");
                     }
                     Parcel data = Parcel.obtain(), reply = Parcel.obtain();
                     try {
@@ -73,6 +68,7 @@ public final class SdManifestReceivers {
                         reply.readException();
                     } finally { data.recycle(); reply.recycle(); }
                 } catch (Exception failure) {
+                    if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
                     System.err.println("SDBROADCAST=manifest_dispatch_failed|class="+info.name
                             +"|type="+failure.getClass().getName());
                     failure.printStackTrace();

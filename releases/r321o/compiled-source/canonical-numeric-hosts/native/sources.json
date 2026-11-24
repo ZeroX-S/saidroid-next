@@ -1,9 +1,0 @@
-{
-  "schema": "saildroid-canonical-numeric-hosts-source-v1",
-  "scope": "Android10 netd strictnumeric classification while preserving actual component filelookup and hostDNS, implemented over real glibc ownership. Generalallapps resolver boundary, no pertest literals.",
-  "source": "native/compat/canonical-numeric-hosts/libcore-canonical-numeric-hosts.h",
-  "builder": "native/compat/build-canonical-numeric-hosts-vm.py",
-  "references": {
-    "build/evidence/cts-frame-repair-20261031/aosp-extra/resolver208-inputs-v1/getaddrinfo.cpp": "193a561ccd3ba98068c76d83d600446df7b794ce967cb83e5cdc65515ea79102"
-  }
-}

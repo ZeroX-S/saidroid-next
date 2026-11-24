@@ -1,9 +1,0 @@
-{
-  "schema": "saildroid-component-properties-v1",
-  "first_supported_api": 29,
-  "first_supported_api_scope": "SailDroid's first implemented Android platform API, not the phone vendor's original shipping Android version",
-  "fingerprint": "Derived from the component's existing brand, product, device, release, build ID, incremental, type and signing tags",
-  "preserve_existing_signing_tags": true,
-  "invent_android_partitions": false,
-  "certify_secure_host_build": false
-}
