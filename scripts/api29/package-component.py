@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble an isolated, reviewable SailDroid API29 component; no device writes."""
+"""Assemble an isolated, reviewable SailDroid API28 component; no device writes."""
 from pathlib import Path
 import argparse,subprocess,shutil,json,hashlib,tarfile,os,zipfile,re
 p=argparse.ArgumentParser()
@@ -13,7 +13,7 @@ repo=Path(__file__).resolve().parents[2]
 def copy(source,relative):
  target=root/relative;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target);target.chmod(0o644);return target
 # Current-process glibc helpers are kept separate from Android ELF libraries.
-for name in ['runtime.jar','libsdbridge.so','libsdwindow.so','libsdhost29.so','libsdmaliit.so','libsdhostapi.so']:copy(a.product/name,'lib/'+name)
+for name in ['runtime.jar','libsdbridge.so','libsdwindow.so','libsdhost29.so','libsdmaliit.so','libsdhostapi.so','libsdvoip.so']:copy(a.product/name,'lib/'+name)
 for name in ['saildroid-app','saildroid-host']:copy(a.product/name,'libexec/'+name).chmod(0o755)
 for name in ['sdwebviewd','sdwebview-host','webview-engine.qml','webview-host-env.json']:
  copy(a.product/'webview-host'/name,'libexec/'+name).chmod(0o644 if name.endswith(('.qml','.json')) else 0o755)
@@ -31,9 +31,9 @@ base=['core-oj','apachehttp','apache-xml','bouncycastle','core-junit','core-liba
 for component in base:
  source=(a.core if component in ['core-oj','core-libart']else Path('/home/art/java/dex/art'))/(component+'-hostdex.jar')
  target='java/dex/art/'+source.name;copy(source,target);boot.append(target)
-for source in sorted(a.framework.glob('framework29-*.jar')):target='java/dex/art/'+source.name;copy(source,target);boot.append(target)
-# Resolve the dependency closure from matching API29 system/APEX libraries.
-locations=[a.native/'lib64',a.native/'apex/com.android.runtime.debug/lib64',a.native/'apex/com.android.runtime.debug/lib64/bionic',a.native/'apex/com.android.conscrypt/lib64',a.native/'apex/com.android.resolv/lib64',a.native/'apex/com.android.media/lib64',a.native/'apex/com.android.media.swcodec/lib64']
+for source in sorted(a.framework.glob('framework28-*.jar')):target='java/dex/art/'+source.name;copy(source,target);boot.append(target)
+# Resolve the dependency closure from matching API28 system libraries.
+locations=[a.native/'lib64',a.native/'vendor/lib64']
 libraries={}
 for directory in locations:
  if directory.is_dir():
@@ -61,23 +61,22 @@ certs=root/'system/etc/security/cacerts'
 if certs.exists():shutil.rmtree(certs)
 shutil.copytree('/home/art/etc/security/cacerts',certs)
 for f in Path('/home/art/usr/icu').glob('*.dat'):copy(f,'usr/icu/'+f.name)
-for f in (a.native/'apex/com.android.runtime.debug/etc/icu').glob('*.dat'):copy(f,'usr/icu/'+f.name)
-with zipfile.ZipFile(a.inputs/'android-all-10-robolectric-5803371.jar')as z:
+with zipfile.ZipFile(a.inputs/'android-all-9-robolectric-4913185-2.jar')as z:
  target=root/'usr/share/zoneinfo/tzdata';target.parent.mkdir(parents=True);target.write_bytes(z.read('usr/share/zoneinfo/tzdata'))
 (root/'framework').symlink_to('system/framework',target_is_directory=True);(root/'etc').symlink_to('system/etc',target_is_directory=True);(root/'fonts').symlink_to('system/fonts',target_is_directory=True)
 (root/'apex/com.android.runtime.debug/etc/icu').mkdir(parents=True)
 for f in (root/'usr/icu').glob('icudt63*.dat'):(root/'apex/com.android.runtime.debug/etc/icu'/f.name).symlink_to('../../../../usr/icu/'+f.name)
-properties='''ro.build.version.sdk=29
-ro.build.version.release=10
+properties='''ro.build.version.sdk=28
+ro.build.version.release=9
 ro.build.version.preview_sdk=0
 ro.build.version.codename=REL
 ro.build.version.all_codenames=REL
 ro.build.version.security_patch=2019-09-05
-ro.build.version.incremental=saidroid-api29-0.2
-ro.build.id=SAILDROID29
+ro.build.version.incremental=saidroid-api28-0.3
+ro.build.id=SAILDROID28
 ro.build.type=user
 ro.build.tags=dev-keys
-ro.build.fingerprint=saidroid/saidroid/saidroid:10/SAILDROID29/0.2:user/dev-keys
+ro.build.fingerprint=saidroid/saidroid/saidroid:9/SAILDROID28/0.3:user/dev-keys
 ro.product.brand=SailDroid
 ro.product.manufacturer=SailDroid
 ro.product.name=saidroid
@@ -95,7 +94,7 @@ ro.debuggable=0
 boot_image=None
 if a.boot_image:
  recipe=json.loads((a.boot_image/'recipe.json').read_text());images=json.loads((a.boot_image/'manifest.json').read_text())
- expected=[name for name in boot if '/framework29-' not in name]
+ expected=[name for name in boot if '/framework28-' not in name]
  assert {Path(name).name for name in recipe['files']}=={Path(name).name for name in expected}
  for source,sha in recipe['files'].items():
   target=root/'java/dex/art'/Path(source).name;assert target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest()==sha
@@ -116,7 +115,7 @@ if a.hardware_profile:
   copy(repo/'scripts/api29'/source,'share/build/hardware-identity/'+source)
 (root/'build.prop').write_text(properties)
 product_manifest=json.loads((a.product/'manifest.json').read_text())
-(root/'runtime.json').write_text(json.dumps(dict(schema='saildroid-api29-component-v1',api=29,version='0.3.0',boot_jars=boot,renderer='hwui-gles-wayland' if hardware else 'software-wayland',native_namespaces='application-process',native_host=True,native_nice_limit=product_manifest.get('native_nice_limit',28),native_bootstrap=product_manifest.get('native_bootstrap'),binder_device=a.binder_device,boot_image=boot_image),indent=2)+'\n')
+(root/'runtime.json').write_text(json.dumps(dict(schema='saildroid-api28-component-v1',api=28,version='0.3.0',boot_jars=boot,renderer='hwui-gles-wayland' if hardware else 'software-wayland',native_namespaces='application-process',native_host=True,native_nice_limit=product_manifest.get('native_nice_limit',40),native_bootstrap=product_manifest.get('native_bootstrap'),binder_device=a.binder_device,boot_image=boot_image),indent=2)+'\n')
 icons=root/'share/icons';icons.mkdir(parents=True);(icons/'saildroid.svg').write_text('''<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="28" fill="#173f58"/><path d="M29 83L57 26l39 57H29z" fill="#dceaf0"/><path d="M29 91h67" stroke="#58c5d7" stroke-width="8" stroke-linecap="round"/></svg>''')
 subprocess.run(['python3',str(repo/'scripts/api29/make-startup-icon.py'),str(icons/'saildroid.png')],check=True)
 for source in [repo/'native/ime/LICENSE.LGPL',repo/'native/ime/UPSTREAM.md',repo/'native/window/surface-extension.xml']:copy(source,'share/licenses/'+source.name)
@@ -142,7 +141,7 @@ for path in sorted(root.rglob('*')):
  elif path.is_file():
   if not str(path.relative_to(root)).startswith(('libexec/','bin/')):path.chmod(0o644)
   files[str(path.relative_to(root))]=dict(sha256=hashlib.sha256(path.read_bytes()).hexdigest(),size=path.stat().st_size,mode=path.stat().st_mode&0o777)
-record=dict(schema='saildroid-api29-component-v1',api=29,files=files,symlinks=symlinks,bytes=sum(f['size']for f in files.values()))
+record=dict(schema='saildroid-api28-component-v1',api=28,files=files,symlinks=symlinks,bytes=sum(f['size']for f in files.values()))
 (a.output/'manifest.json').write_text(json.dumps(record,indent=2)+'\n')
 with tarfile.open(a.output/'component.tar.gz','w:gz')as tar:tar.add(root,arcname='root',recursive=True);tar.add(a.output/'manifest.json',arcname='manifest.json')
-print('API29_COMPONENT=packaged|files='+str(len(files))+'|bytes='+str(record['bytes'])+'|sha256='+hashlib.sha256((a.output/'component.tar.gz').read_bytes()).hexdigest())
+print('API28_COMPONENT=packaged|files='+str(len(files))+'|bytes='+str(record['bytes'])+'|sha256='+hashlib.sha256((a.output/'component.tar.gz').read_bytes()).hexdigest())

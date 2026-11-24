@@ -1,32 +1,21 @@
-# 验证范围：r321o
+# 当前验证范围（Android 9 / API 28）
 
-本次修复针对基础应用无法启动的回归：公共 ActivityThread 启动路径查询代理配置时，
-被 SdConnectivity 错误地要求 ACCESS_NETWORK_STATE，导致安装程序和计算器在创建
-窗口前退出。r321o 将两个代理配置查询移到网络状态权限检查之前；不修改 APK、
-应用权限或真实网络状态观察的权限边界。
+主线运行时已统一收敛为 Android 9（API 28）兼容目标，移除了旧的 API 29 运行时支持与 `r321o` 历史快照。
 
-| 项目 | 结果 |
+## 已整合与验证的关键范围
+
+| 模块 | 状态与说明 |
 |---|---|
-| 旧运行时字节复现 | 通过，随后只更改 SdConnectivity.class |
-| 实际 ART 权限回归 | 通过；旧版本复现 2 次拒绝，新版本 0 次；8 项受保护操作仍拒绝 |
-| 框架与策略 | 14 个框架 boot JAR 和 hidden API flags 保持一致，45 个启动镜像重建 |
-| RPM 校验 | 完整提取、2707 个文件、5 个链接逐项比对通过，无安装 scriptlet |
-| 手机安装、激活 | 已完成，原 7 个应用记录哈希不变，旧运行时保留 |
-| 重启后安装程序、计算器 | 通过：新 boot / Lipstick 会话，真实窗口、首帧、触摸及应用处理标记；无原权限异常 |
-| 已安装包完整性 | `rpm -V` 无输出 |
+| API 28 框架与公共 SDK | 对齐框架 ABI、JNI 注册表（`native/api28-jni-entries.inc`）与 Java CLI；恢复 185 个缺失的 API 28 公共 SDK 成员 |
+| 跨进程组件生命周期 | Activity、Service、ContentProvider 与 ManifestReceiver 统一支持私有 Binder 跨进程启动及 120 秒有界存活等待（`SdProcessStartup`）；远程 Activity 空栈保留应用进程 |
+| Activity 栈与窗口路由 | 支持 `CLEAR_TOP \| SINGLE_TOP` 已有实例复用（`reuseClearTop`）；分离首次按下触摸目标选择与键盘焦点选择（`touchTarget`），恢复非聚焦 `PopupWindow` 点击 |
+| 普通显式广播分发 | `SdActivityManagerService.broadcastIntent` 接通显式组件广播至 `SdManifestReceivers`，并与 `SdServiceEndpoint` 事务 9 配套工作 |
+| 显示、WebView 与文件选择 | 原生显示事件接入 Wayland；集成 Atlantic/WPE 运行库及页面错误恢复；本地只读文件选择器（`SdDocumentPicker` / `SdDocumentsProvider`）按窗口后端匹配硬件加速 |
+| 音视频与语音通话 | PulseAudio 麦克风权限与录音桥接、Camera1 预览与纹理更新、GStreamer 元数据/缩略图宽高比，以及 API 28 SIP 注册与 PulseAudio RTP 通话 |
+| 安装与激活 | 支持可选封签 RPM 自动激活（`%pre` 检查跨版本运行进程，`%posttrans` 触发激活）及无 `binderfs` 内核上的受信任静态 Binder 节点兜底 |
 
-此前 r321n 的四应用可见启动采集通过：QQ、微信、小红书、知乎各两帧，
-并检查窗口焦点。该观察属于旧版本。生命周期测试在知乎启动准备阶段被
-进程身份审计拒绝，实际切换输入为 0 次，不能记为后台切换通过。
-知乎间歇性焦点问题、应用内完整功能、登录后功能、长期稳定性和完整 CTS
-仍未验收；50% 性能目标暂缓，不作达标声明。
+## 待持续完成的设备端验收
 
-发布包不包含商业 APK、应用数据、账号或应用 AOT 缓存。公开源码去除了
-开发脚本的内置认证默认值，并保留对应来源哈希。首次公开源码快照尚未
-通过空环境重建完整 RPM 的验收。
-
-这次真机核对采用只读方式观察用户在新会话中已打开的两个基础应用。
-两个进程的 PID / 启动时间、激活版本、窗口和日志一致；安装程序有触摸后的
-应用目录变更处理，计算器有触摸后的应用触觉反馈请求。未注入合成输入，
-未完成新截图或完整算式测试，也未将“激活已有实例”的成功退出误计为冷启动。
-用户正在操作的应用保持运行。四应用完整矩阵尚未在 r321o 重新验收。
+- 微信服务号、公众号与小程序页面的长时稳定性端到端验收。
+- 多设备端口上的完整商业应用交互回归与完整 CTS 验证。
+- 详细 QQ 问题定位与回归说明见 `docs/QQ-LOGIN.md`、`docs/QQ-PHOTO-SEND.md`、`docs/QQ-RECEIVED-FILE-OPEN.md` 和 `docs/QQ-FILE-FORWARD.md`。

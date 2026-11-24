@@ -1,9 +1,0 @@
-{
-  "passed": true,
-  "image_files_changed": false,
-  "encoded_runtime_sha256": "eb7e30783cad033a67d0efe202dbd94b41f7fea0c09ec13251d4acf4bf762495",
-  "boot_manifest_sha256": "d9c1c7724028a184fa3adba24b1ae69280bc543814b33072029ac5e17b358fc0",
-  "hiddenapi_manifest_sha256": "62768881100a77ffb95e48c5501e2927eaae7d5e6dd1bf362b12239e5027018f",
-  "runtime_config_sha256": "afe3b921955a3e4d321de8423cdb5cf3088cdb0bb3bec8ff15e3a5486690e34c",
-  "previous_metadata_preserved": "u1a-images-v1/runtime.json"
-}

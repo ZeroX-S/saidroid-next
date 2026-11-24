@@ -123,12 +123,8 @@ public final class SdInputMethods implements InvocationHandler,SdMaliit.Listener
         if(n.equals("getEnabledInputMethodSubtypeList")||n.equals("getShortcutInputMethodsAndSubtypes"))return new ArrayList<Object>();
         if(n.equals("getCurrentInputMethodSubtype")||n.equals("getLastInputMethodSubtype"))return null;
         if(n.equals("addClient")){
-            if(Build.VERSION.SDK_INT<29){
-                if((Integer)a[2]!=Process.myUid()||(Integer)a[3]!=Process.myPid())
-                    throw new IllegalArgumentException("Input client belongs to another process");
-            }else if((Integer)a[2]!=SdDisplayShim.DISPLAY_ID){
-                throw new IllegalArgumentException("Unknown input display");
-            }
+            if((Integer)a[2]!=Process.myUid()||(Integer)a[3]!=Process.myPid())
+                throw new IllegalArgumentException("Input client belongs to another process");
             registerClient((IInputMethodClient)a[0],(IInputContext)a[1]);return null;
         }
         if(n.equals("removeClient")){

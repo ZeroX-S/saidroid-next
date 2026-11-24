@@ -1,6 +1,6 @@
 # 源码与构建
 
-本仓库包含 2026-11-06 工作源码、固定上游依赖、本地补丁和 r321o 随包编译源码来源。首次公开快照尚未通过从空环境重建完整 RPM 的验收。
+本仓库维护面向 Sailfish OS（aarch64）的 Android 9（API 28）独立 ART 兼容运行时源码、固定上游依赖与兼容性检查工具链。不再支持构建或打包 API 29 运行时目标。
 
 ## 获取源码
 
@@ -10,24 +10,18 @@ cd saidroid-next
 python3 tools/apply-third-party-patches.py
 ```
 
-依赖 URL、精确提交和补丁 SHA256 见 `third-party-sources.json`。补丁应用工具先检查所有仓库都处于固定提交及干净状态，再应用已校验的补丁；重复运行会拒绝已改动的子模块。上游项目的许可文本位于子模块和 `LICENSES/`。ART 和 bionic 的补丁包含本地提交及工作区改动，固定基点是可从公开上游取得的提交。
+依赖 URL、精确提交和补丁 SHA-256 见 `third-party-sources.json`。补丁应用工具先检查所有子模块都处于固定提交及干净状态，再应用已校验的补丁；重复运行会拒绝已改动的子模块。上游项目的许可文本位于子模块和 `LICENSES/`。
 
-## API29 构建入口
+## API 28 构建与预检入口
 
-使用 aarch64 Linux 构建环境。当前开发环境为 `MeeGo Build`，共享源码路径为 `/media/psf/Home/WorkSpace/saidroid-next`。部分历史脚本将此路径、`/tmp` 工具链和 SSH 别名写在代码中，移植构建环境时需逐项调整。
+完整产物编译与原生打包面向 aarch64 Linux 环境；源码级 Java / D8 / JNI / 服务分派预检也可在具备 JDK 21 与 `aidl` 的 x86_64 Linux 主机上直接执行。
 
 主要入口：
 
-- `scripts/api29/fetch-inputs.py INPUTS`：下载并校验固定 Android API29 / Robolectric / R8 输入。
-- `scripts/api29/build-core.py`：构建兼容 Java 核心层，具体参数见脚本 CLI。
-- `scripts/api29/build-product.py INPUTS OUTPUT`：构建工作源码的 Java 运行时和原生宿主。
-- `scripts/packaging/README.md`：版本隔离、闭包核对、RPM 打包与显式激活流程。
-- `scripts/packaging/build-runtime-rpm-vm.py --help`：从已有、哈希锁定的 runtime root 构建 RPM，并完整提取比对。
+- `scripts/api29/fetch-inputs.py INPUTS [--skip-sysimg]`：下载并校验固定 Android API 28 系统镜像、Robolectric 框架 JAR、独立 ART 核心依赖参考 JAR 及 R8 编译器。
+- `scripts/api28/build-framework-source.py` / `scripts/api29/build-framework.py`：准备并编译 API 28 框架 DEX。
+- `scripts/api29/build-product.py INPUTS OUTPUT [--compat-only]`：构建 API 28 Java 运行时（含 SIP/RTP 引用层）、执行源码兼容性预检，并编译原生宿主组件。
+- `scripts/compat/run-preflight.py`：汇总 API 28 公开 SDK 成员、JNI 字面量描述符、服务分派路由、ELF 依赖及打包 ART 契约检查（详见 `scripts/compat/README.md`）。
+- `scripts/packaging/README.md` / `scripts/packaging/build-runtime-rpm-vm.py --help`：版本隔离、核心链接器核对、清单封签、RPM 打包与激活流程。
 
-JDK、Android 构建输入、宿主开发包和目标平台支持库需要独立准备。商业 APK、设备数据、签名密钥和应用缓存不在仓库中；签名相关脚本读取调用者自行准备的私有密钥文件。
-
-## 工作源码与已发布二进制
-
-`native/` 和 `scripts/` 是工作区源码快照，其中包含尚未重新打包的开发修改。`releases/r321o/compiled-source/` 是原安装包内保存的已编译源码和来源记录，其中 `startup-proxy-permission321/SdConnectivity.java` 是本次实际编译的权限修复源文件。较旧的基础 `scripts/device/SdConnectivity.java` 不能替代这一最终覆盖层。公开导出还去除开发脚本认证默认值。`SOURCE-SNAPSHOT.json` 记录每份文件的来源哈希与公开哈希。
-
-因此直接运行 `build-product.py` 不应被视作 r321o 的逐位重建。完整历史构建链的外部输入及路径尚未全部转成自包含流水线。Release 中的打包差异与校验结果只证明已提供的安装包完整性，不替代完整源码重建证明。
+商业 APK、设备数据、签名密钥和应用 AOT 缓存不在仓库中；签名相关脚本读取调用者自行准备的私有密钥目录。

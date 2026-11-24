@@ -68,7 +68,7 @@ def fixture():
   finally:
    for sock in sockets:sock.close()
 
-def release(host,name,legacy=False,api=29):
+def release(host,name,legacy=False,api=28):
  root=host.path((m.LEGACY_RELEASES if legacy else m.RELEASES)+'/'+name);owned(root)
  files={'runtime.json':json.dumps(dict(api=api,native_host=True)), 'libexec/saildroid-app':'fixture bootstrap', 'libexec/saildroid-host':'fixture host','bin/dalvikvm':'fixture cli','share/manager.apk':'fixture system apk','share/icons/saildroid.svg':'<svg/>',m.REGISTRY_JAR:'fixture registry jar'}
  for rel,data in files.items():
@@ -87,6 +87,9 @@ def application(host,package='com.example.fixture'):
  return root
 
 q=subprocess.run(['python3',str(module_path),'status'],capture_output=True,text=True);assert q.returncode==1 and 'Sailfish OS 5.2 and 5.3' in q.stderr;record('production-cli-refuses-build-vm')
+with fixture()as host:
+ release(host,'api29-rejected',api=29)
+ must_fail('api29-runtime-refused',lambda:action(host,'change','api29-rejected'),'Only the native API28 bootstrap is supported')
 with fixture()as host:
  root=release(host,'api28-a',api=28)
  assert action(host,'status')['status']=='unconfigured'

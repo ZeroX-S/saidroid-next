@@ -243,13 +243,25 @@ class SourceContractTests(unittest.TestCase):
         self.assertEqual(len(result['checked']), 2)
 
     def test_omitted_core_provider_stays_unresolved(self):
+        self.inventory.classes['libcore/io/IoUtils'] = ClassInfo(
+            'libcore/io/IoUtils', '', (), 1, methods={('exchangeOwnerTag', '(IJJ)V'): 0x000a})
+        self.inventory.classes['dalvik/system/BlockGuard$Policy'] = ClassInfo(
+            'dalvik/system/BlockGuard$Policy', '', (), 0x201, methods={})
         path = self.directory / 'fixture.c'
-        path.write_text('void install(JNIEnv *env) { env->FindClass("java/lang/Object"); }')
+        path.write_text('''void install(JNIEnv *env) {
+            env->FindClass("java/lang/Object");
+            JNINativeMethod m[] = {{"exchangeOwnerTag", "(IJJ)V", fn}};
+            env->RegisterNatives(env->FindClass("libcore/io/IoUtils"), m, 1);
+            jclass p = env->FindClass("dalvik/system/BlockGuard$Policy");
+            env->GetMethodID(p, "onExplicitGc", "()V");
+        }''')
         complete = audit([path], self.inventory, 28)
-        incomplete = audit([path], self.inventory, 28, incomplete_prefixes=('java/',))
-        self.assertEqual(complete['problems'][0]['reason'], 'missing-class')
+        incomplete = audit([path], self.inventory, 28, incomplete_prefixes=('java/', 'libcore/', 'dalvik/'))
+        self.assertEqual([row['reason'] for row in complete['problems']],
+                         ['missing-class', 'missing-native-declaration', 'missing-member'])
         self.assertFalse(incomplete['problems'])
-        self.assertEqual(incomplete['unresolved'][0]['reason'], 'provider-not-supplied')
+        self.assertEqual([row['reason'] for row in incomplete['unresolved']],
+                         ['provider-not-supplied', 'provider-not-supplied', 'provider-not-supplied'])
 
     def test_disconnected_service_route_fails(self):
         self.inventory.classes['pkg/IFixture'] = ClassInfo('pkg/IFixture', '', (), 0x201,

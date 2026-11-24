@@ -418,8 +418,7 @@ public final class SdActivityManagerService implements InvocationHandler {
         if ("getMemoryInfo".equals(name)) { memoryInfo((ActivityManager.MemoryInfo)args[0]);return null; }
         if ("getProcessMemoryInfo".equals(name))return processMemory((int[])args[0]);
         if ("getContentProvider".equals(name)) {
-            int authorityIndex=android.os.Build.VERSION.SDK_INT>=29?2:1;
-            return SdContentProviders.acquire((String)args[authorityIndex],(Integer)args[authorityIndex+1]);
+            return SdContentProviders.acquire((String)args[1],(Integer)args[2]);
         }
         if ("publishContentProviders".equals(name)) {
             SdContentProviders.publish((java.util.List<android.app.ContentProviderHolder>)args[1]);return null;

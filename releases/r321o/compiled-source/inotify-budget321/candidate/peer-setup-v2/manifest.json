@@ -1,8 +1,0 @@
-{
-  "fixture.py": "67ee6b3ceeee2a79d2f8a642c84f7e27f26c349f854ea04bcde9d34fd53c3047",
-  "self-nondumpable.py": "accdf803c5a3dabba1d7dee23b8c5948ba20bf1a4966065e46993621e6248b4b",
-  "README.md": "fc7a954a8e112d8a226f36fb60f87242f8fdf42a4455cb93a5c7e20d16d39fd2",
-  "test-vm.py": "b8b116d2b49dc395fa1d42367260236e8120bb271a1eb2a0bf7fe1252c964fb2",
-  "unchanged_candidate_sha256": "832548d373dfa2b17b87076cbff23f8ea78d52849611ebb9166c18686441e76c",
-  "unchanged_c_sha256": "35f4cd8925a000ef49b5e02c21413596828868ab0387e7f9e961769e0f7a4db0"
-}

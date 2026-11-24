@@ -522,7 +522,7 @@ class Setup:
                     and release in path.resolve().parents, 'Payload symlink escapes release: ' + relative)
             require(path.lstat().st_uid == 0, 'Untrusted payload symlink')
         runtime = document(release / 'runtime.json')
-        require(runtime.get('api') in (28, 29) and runtime.get('native_host') is True, 'Only the native API28/API29 bootstrap is supported')
+        require(runtime.get('api') == 28 and runtime.get('native_host') is True, 'Only the native API28 bootstrap is supported')
         for required in ('libexec/saildroid-app', 'libexec/saildroid-host', 'bin/dalvikvm', 'share/manager.apk'):
             require(required in files, 'Required native installation entry is absent: ' + required)
         if not legacy:

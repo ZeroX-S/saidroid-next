@@ -65,6 +65,18 @@ public final class SdRemoteServices {
 }
 """
 
+MANIFEST = """
+import android.content.Intent;
+import android.os.Bundle;
+public final class SdManifestReceivers {
+    public static int calls;
+    public static void send(Intent intent, int result, String data, Bundle extras,
+            String[] permissions, int user) throws Exception {
+        calls++;
+    }
+}
+"""
+
 PROBE = """
 import android.app.ActivityManager;
 import android.app.IActivityManager;
@@ -156,10 +168,13 @@ public final class ForeignBroadcastProbe {
                     null, -1, null, true, false, 1);
             throw new AssertionError("Ordered foreign broadcast accepted");
         } catch (UnsupportedOperationException expected) { cases++; }
+        Intent explicit = new Intent(ACTION).setComponent(new ComponentName(PACKAGE, PACKAGE + ".Receiver"));
+        require(send(api, explicit, null, 1) == ActivityManager.BROADCAST_SUCCESS
+                && SdManifestReceivers.calls == 1 && localCount[0] == 3,
+                "Explicit receiver broadcast did not route exclusively to SdManifestReceivers");
         try {
-            send(api, new Intent(ACTION).setComponent(new ComponentName(PACKAGE, PACKAGE + ".Receiver")),
-                    null, 1);
-            throw new AssertionError("Unsupported explicit receiver delivery accepted");
+            local.deliverBroadcast(explicit, null, 0, null, null, null, 1, false);
+            throw new AssertionError("Dynamic broadcast accepted explicit receiver component");
         } catch (UnsupportedOperationException expected) { cases++; }
         SdRemoteServices.target = manager();
         int[] remoteCount = {0};
@@ -213,6 +228,7 @@ def main():
             "SdAppPermissions.java": PERMISSIONS,
             "SdKernelServices.java": KERNEL,
             "SdRemoteServices.java": REMOTE,
+            "SdManifestReceivers.java": MANIFEST,
             "ForeignBroadcastProbe.java": PROBE,
         }
         paths = []

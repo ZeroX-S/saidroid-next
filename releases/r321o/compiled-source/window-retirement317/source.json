@@ -1,6 +1,0 @@
-{
-  "baseline": "scripts/api29/surface-view-compat/source/sdwindow.c",
-  "sha256": "25c6f66f253a9ff855c7de497ba3bb7e39b8341f5e94e8bb3a174e961bdea9b5",
-  "candidate_sha256": "cd7e8f351b901f667827454c45a7377096f931ca2fbe1ee7e33ed5c8eb6ea50e",
-  "status": "isolated-candidate-not-accepted"
-}

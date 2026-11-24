@@ -61,13 +61,12 @@ if a.output.exists():
 root = a.root.resolve()
 runtime = json.loads((root / 'runtime.json').read_text())
 api = runtime['api']
-assert api in (28, 29), 'Unsupported Android API'
+assert api == 28, 'Only Android API 28 is supported'
 assert digest(a.manifest) == a.manifest_sha256, 'Snapshot manifest hash mismatch'
 expected = json.loads(a.manifest.read_text())
 assert inventory(root) == expected, 'Payload differs from exact manifest'
-if api == 28:
-    subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / 'api28/prepare-core-linker.py'),
-                    '--root', str(root), '--release-id', a.release_id, '--check'], check=True)
+subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / 'api28/prepare-core-linker.py'),
+                '--root', str(root), '--release-id', a.release_id, '--check'], check=True)
 allowed_apks = {'share/manager.apk', 'system/framework/framework-res.apk'}
 assert {s for s in expected['files'] if s.endswith('.apk')} == allowed_apks
 assert not any(s.startswith(('data/', 'apps/', 'home/')) for s in expected['files'])

@@ -148,8 +148,9 @@ def audit(paths, inventory, api, incomplete_prefixes=()):
                     target = dict(row, owner=name, name=method, descriptor=descriptor, symbol=symbol)
                     resolved = inventory.resolve('method', name, method, descriptor)
                     if resolved is None or not resolved[1] & 0x100:
-                        target['reason'] = 'missing-native-declaration'
-                        (unresolved if conditional else problems).append(target)
+                        provider_missing = name.startswith(incomplete_prefixes)
+                        target['reason'] = 'provider-not-supplied' if provider_missing else 'missing-native-declaration'
+                        (unresolved if conditional or provider_missing else problems).append(target)
                     else:
                         checked.append(target)
                 continue
@@ -163,7 +164,7 @@ def audit(paths, inventory, api, incomplete_prefixes=()):
             resolved = inventory.resolve(kind, name, method, descriptor)
             target = dict(row, owner=name, name=method, descriptor=descriptor)
             if resolved is None:
-                provider_missing = name not in inventory.classes and name.startswith(incomplete_prefixes)
+                provider_missing = name.startswith(incomplete_prefixes)
                 target['reason'] = 'provider-not-supplied' if provider_missing else 'missing-member'
                 (unresolved if conditional or provider_missing else problems).append(target)
             elif bool(resolved[1] & 8) != ('Static' in operation):

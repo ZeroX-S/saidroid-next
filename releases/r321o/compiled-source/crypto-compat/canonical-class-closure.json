@@ -1,8 +1,0 @@
-{
-  "scope": "Canonical complete566 registration graph resolved against actual shipped newerBC raw classes; reference inventory only, no product changes",
-  "canonical_properties": 566,
-  "implementations": 153,
-  "missing": {},
-  "all_present": true,
-  "actual_class_jar_sha256": "5885866ff93c7d22dc0e38c2a63222fea50bc742b16d0aab269687cf95095872"
-}

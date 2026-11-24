@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the API28/API29 product and run compatibility checks from source."""
+"""Build the API28 product and run compatibility checks from source."""
 from pathlib import Path
 import argparse,subprocess,os,json,hashlib,shutil,sys
 p = argparse.ArgumentParser(description=__doc__)
@@ -9,7 +9,7 @@ p.add_argument('--hwui-helper', type=Path)
 p.add_argument('--pthread-helper', type=Path)
 p.add_argument('--framework', type=Path)
 p.add_argument('--r8', type=Path)
-p.add_argument('--api', type=int, choices=(28, 29))
+p.add_argument('--api', type=int, choices=(28,), default=28)
 p.add_argument('--compat-only', action='store_true', help='Run Java/D8/source checks, or packaged ART checks with --compat-runtime-root')
 p.add_argument('--compat-runtime-root', type=Path)
 p.add_argument('--compat-core', type=Path, action='append', default=[], help='Additional standalone-core class/JAR providers for the source gate')
@@ -24,13 +24,13 @@ compatibility = ['python3', str(repo / 'scripts/compat/run-preflight.py')]
 for apk in args.compat_apk:
     compatibility.extend(['--apk', str(apk)])
 r8 = args.r8 or args.inputs / 'r8-8.3.37.jar'
-framework_names = {28: 'android-all-9-robolectric-4913185-2.jar', 29: 'android-all-10-robolectric-5803371.jar'}
+framework_names = {28: 'android-all-9-robolectric-4913185-2.jar'}
 if args.compat_only and args.compat_runtime_root:
     if args.compat_core:
         p.error('--compat-core applies to Java source checks')
     api = json.loads((args.compat_runtime_root / 'runtime.json').read_text())['api']
-    if args.api is not None and args.api != api:
-        p.error('--api differs from the packaged runtime')
+    if api != 28:
+        p.error('Only API28 packaged runtimes are supported')
     fw = args.framework or args.inputs / framework_names[api]
     compatibility.extend(['--runtime-root', str(args.compat_runtime_root), '--framework', str(fw),
                           '--r8', str(r8), '--output', str(args.output), '--headless', '--elf'])
@@ -47,7 +47,7 @@ if not java_home:
         p.error('Set JAVA_HOME or install a JDK providing javac')
     java_home = legacy_java if legacy_java.is_dir() else Path(compiler).resolve().parents[1]
 java = Path(java_home) / 'bin'
-api = args.api or 29
+api = 28
 fw = args.framework or args.inputs / framework_names[api]
 voip_references = args.output / 'sip-references'
 subprocess.run(['python3', str(repo / 'scripts/api28/build-sip-service.py'), '--references-only',
@@ -56,7 +56,7 @@ subprocess.run(['python3',str(repo/'native/webview/tools/check-clinit-safety.py'
 classes=args.output/'classes';classes.mkdir()
 names='SdBridge SdStartup SdClassLoaderNamespaces SdGraphicsEnvironment SdRuntime SdRuntimeDiagnostics SdViewDump SdViewRepair SdRuntimeControl SdKernelServices SdBinderRegistry SdSensorService SdServiceEndpoint SdRemoteServices SdApkPackage SdAppPermissions SdActivityManagerService SdActivityTaskManager SdActivityHost SdServiceHost SdServiceManagerStub SdServices SdPackageManagerService SdStorageManager SdUsers SdDisplayShim SdWindowHost SdWindowManager SdWindowSession SdDisplayFrames SdSurfaceStore SdSurfaceControls SdMaliit SdInputManager SdInputMethods SdConnectivity SdHostState SdPower SdKeyguard SdNotificationPolicy SdContentService SdContentProviders SdSettingsProvider SdWebEngine SdWebInterfaces SdWebCookies SdWebViewProvider SdCryptoProvider'.split()
 names.extend(['SdRemoteActivities','SdProcessStartup','SdBattery','SdAudio','SdInstrumentation','SdNetworkStats','SdThermal','SdDeviceIdle'])
-names.extend(['SdDocumentPicker','SdDocumentsProvider'])
+names.extend(['SdDocumentPicker','SdDocumentsProvider','SdTimeZone'])
 sources=[repo/'scripts/device'/(name+'.java')for name in names]+sorted((repo/'scripts/device/org/saildroid/manager').glob('*.java'))+sorted((repo/'scripts/device/org/saildroid/host').glob('*.java'))
 sources.append(repo/'scripts/device/SdSharedLibraries.java')
 sources.append(repo/'scripts/device/SdInstrumentationFiles.java')
@@ -120,7 +120,7 @@ record=dict(api=api,native_nice_limit=40,native_bootstrap=dict(schema='saildroid
 record['compatibility_preflight'] = dict(result='compatibility/result.json',
     sha256=hashlib.sha256((args.output / 'compatibility/result.json').read_bytes()).hexdigest())
 record['webview_host']=dict(files={name:hashlib.sha256((args.output/'webview-host'/name).read_bytes()).hexdigest() for name in ['sdwebviewd','sdwebview-host','webview-engine.qml','webview-host-env.json']},sources={str(f.relative_to(repo)):hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted((repo/'native/webview/qt-helper').rglob('*')) if f.is_file() and f.suffix in ['.cpp','.h','.qml','.sh','.md','.json']})
-native_sources=[repo/'native/api29-jni-entries.inc',repo/'scripts/device/sdbridge.c']
+native_sources=[repo/'native/api28-jni-entries.inc',repo/'scripts/device/sdbridge.c']
 native_sources+=sorted((repo/'native/compat').glob('*.[ch]'))+sorted((repo/'native/window').glob('*.c'))+sorted((repo/'native/hwui').glob('*.c'))+sorted((repo/'native/hwui').glob('*.cpp'))
 native_sources+=sorted((repo/'native/host').glob('*.cpp'))+sorted((repo/'native/host').glob('*.hpp'))+sorted((repo/'native/host').glob('*.c'))+sorted((repo/'native/host').glob('*.sh'))+sorted((repo/'native/host/third_party').glob('*'))
 native_sources+=sorted((repo/'native/rtp').glob('*'))

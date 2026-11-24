@@ -17,7 +17,6 @@ from product_sources import JAVA_DIRECTORIES, NATIVE_DIRECTORIES
 
 FRAMEWORKS = {
     28: 'cf4aed5e458deb48ddc0ca92fc25156e6f478d9d5c1d948cdd1817a67ee11b32',
-    29: 'a0ad701eedd47bdaefbac1c2cc80dd400c0adea3cccd8a3ad286f79da1ca294c',
 }
 R8_SHA256 = '59753e70a74f918389cc87f1b7d66b5c0862932559167425708ded159e3de439'
 
@@ -67,7 +66,7 @@ def main():
     parser.add_argument('--framework', type=Path, required=True)
     parser.add_argument('--classes', type=Path, action='append', default=[])
     parser.add_argument('--runtime-root', type=Path)
-    parser.add_argument('--api', type=int, choices=(28, 29))
+    parser.add_argument('--api', type=int, choices=(28,), default=28)
     parser.add_argument('--apk', type=Path, action='append', default=[])
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--headless', action='store_true')
@@ -92,9 +91,9 @@ def main():
                   host=dict(system=platform.system(), machine=platform.machine()), phases={})
     try:
         framework_sha = digest(arguments.framework)
-        api = arguments.api or next((key for key, value in FRAMEWORKS.items() if value == framework_sha), None)
-        if api is None or FRAMEWORKS[api] != framework_sha:
-            raise ValueError('The framework must match the pinned API28/API29 input')
+        api = 28
+        if FRAMEWORKS[api] != framework_sha:
+            raise ValueError('The framework must match the pinned API28 input')
         report['api'] = api
         report['framework'] = dict(path=str(arguments.framework), sha256=framework_sha)
         if arguments.headless:
@@ -153,7 +152,7 @@ def main():
         source_files = native_sources(repository)
         if arguments.runtime_root and 'java/lang/Object' not in providers.classes:
             raise ValueError('Packaged boot classpath is missing java/lang/Object')
-        incomplete_core = () if 'java/lang/Object' in jni_providers.classes else ('java/', 'javax/', 'sun/', 'libcore/')
+        incomplete_core = () if 'java/lang/Object' in jni_providers.classes else ('java/', 'javax/', 'sun/', 'libcore/', 'dalvik/')
         jni = audit(source_files, jni_providers, api, incomplete_prefixes=incomplete_core)
         save(arguments.output / 'jni-contracts.json', jni)
         report['phases']['jni'] = dict(passed=not jni['problems'], checked=len(jni['checked']),

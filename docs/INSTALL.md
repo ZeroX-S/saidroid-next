@@ -1,63 +1,64 @@
 # 安装开发版 RPM
 
-发布包是 aarch64 独立运行时，不是 Android 系统镜像。已验证环境：Pixel 3a XL、Sailfish OS 5.2.0.16、glibc 2.41。当前包需要已有的项目 ART/Binder 基础环境、普通用户 `defaultuser` 及其 Wayland / D-Bus 会话。其他设备和全新系统的自动配置尚未验证。
+发布包是面向 Sailfish OS 的 aarch64 独立 Android 9（API 28）运行时，不是 Android 系统镜像。当前仅支持 API 28 运行时包，需要普通用户 `defaultuser` 及其活跃的 Wayland / D-Bus 会话。
 
 ## 1. 核对包和依赖
 
-从同一 Release 下载 RPM 与 `SHA256SUMS`，在保存文件的目录执行：
+从对应 Release 下载 RPM 与 `SHA256SUMS`，在保存文件的目录执行：
 
 ```sh
 sha256sum -c SHA256SUMS
-rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' saildroid-runtime-api29-r321o-dev-20261106-0.321.15-1.aarch64.rpm
-rpm -qpR saildroid-runtime-api29-r321o-dev-20261106-0.321.15-1.aarch64.rpm
+rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' saildroid-runtime-api28-<release>.aarch64.rpm
+rpm -qpR saildroid-runtime-api28-<release>.aarch64.rpm
 ```
 
-包需要 glibc >= 2.38、libstdc++ >= 13.2、Python >= 3.9，以及 Qt 5 / Wayland / EGL / GStreamer 等宿主依赖。缺失依赖时先处理平台适配；不要使用 `--nodeps` 或直接替换系统 libc。WebView 还依赖目标平台的 Qt/WPE 集成，不能从静态依赖完整性推导其功能可用。
+包需要 glibc >= 2.38、libstdc++ >= 13.2、Python >= 3.9，以及 Qt 5 / Wayland / EGL / PulseAudio / GStreamer 等宿主依赖；启用 WPE WebView 时还要求 Atlantic Engine 的最低版本组件（见根目录 `README.md`）。缺失依赖时先处理平台适配；不要使用 `--nodeps` 或直接替换系统 libc。
 
-## 2. 安装与显式激活
+## 2. 安装与激活
 
-先正常关闭所有 SailDroid 应用和管理器，停止正在进行的开发测试。已有安装的设备尤其需要在 RPM 更新前退出所有相关进程，避免覆盖运行中的版本目录。
+先正常关闭所有 SailDroid 应用和管理器。已有安装的设备尤其需要在更新前退出所有相关进程。
 
-通过 Sailfish 的 `devel-su` 进入 root shell，然后执行：
+通过 Sailfish 的 `devel-su` 进入 root shell 后安装并校验：
 
 ```sh
-rpm -Uvh saildroid-runtime-api29-r321o-dev-20261106-0.321.15-1.aarch64.rpm
-rpm -V saildroid-runtime-api29-r321o-dev-20261106
-python3 /opt/saildroid/releases/api29-r321o-dev-20261106/bin/saildroid-setup status
-python3 /opt/saildroid/releases/api29-r321o-dev-20261106/bin/saildroid-setup activate api29-r321o-dev-20261106
-reboot
+rpm -Uvh saildroid-runtime-api28-<release>.aarch64.rpm
+rpm -V saildroid-runtime-api28-<release-id>
+python3 /opt/saildroid/releases/<release-id>/bin/saildroid-setup status
 ```
 
-`rpm -V` 预期无输出。RPM 没有安装脚本，不会自行激活、启动应用或编译应用缓存。显式激活会核对完整性、准备兼容存储、切换 `/home/art/api29-root` 并通过真实应用注册表刷新入口；它不会安装商业 APK。
+若软件包采用显式激活策略（无自动激活脚本），或需要手动切换到指定已安装版本，执行：
 
-更新后完成普通重启和手机解锁，先确认桌面触摸、滑动正常，再测试应用。保留先前可用版本供回退。包中唯一文件 capability 是原生 bootstrap 的 `cap_sys_resource=ep`，应用宿主不会以 root 身份运行。
+```sh
+python3 /opt/saildroid/releases/<release-id>/bin/saildroid-setup activate <release-id>
+```
 
-`r321o` 使用新的隔离版本目录，与旧 `r321n` 并存；包含公共启动代理查询权限修复及匹配的启动镜像，且去除了随包开发脚本的内置认证默认值。
+若软件包在封签的 `runtime.json` 中声明了 `saildroid-rpm-activation-v1`（`posttrans` 模式），RPM 仅包含固定的 `%pre`（检查任意已安装版本无运行中的 SailDroid 进程）与 `%posttrans`（调用该版本的 `saildroid-setup activate`）脚本，由 `saildroid-setup` 精确核对脚本内容。激活会校验完整性、配置私有 Binder（`binderfs` 或受信任的 `/dev/anbox-binder`、`/dev/puddlejumper` 节点）、原子切换兼容运行根链接 `/home/art/api29-root` 并通过真实应用注册表刷新桌面入口。
+
+包中唯一带文件 capability 的可执行文件是原生 bootstrap `libexec/saildroid-app`（`cap_dac_override,cap_sys_resource=ep`，用于在 `0400` 权限内核上重置继承自桌面会话的 `oom_score_adj` 并设置 `RLIMIT_NICE=40`，随后在 `exec` 无特权宿主前清空全部 capability 并启用 `no_new_privs`）。应用宿主不会以 root 身份运行。
 
 ## 3. 回退或恢复中断的激活
 
 正常关闭 SailDroid 应用和管理器后，以 root 执行所安装版本的 helper：
 
 ```sh
-python3 /opt/saildroid/releases/api29-r321o-dev-20261106/bin/saildroid-setup rollback
-reboot
+python3 /opt/saildroid/releases/<release-id>/bin/saildroid-setup rollback
 ```
 
-如果激活事务被中断，使用 `recover` 恢复事务后再检查 `status`。回退保留 APK 和应用数据；它不会凭空安装缺少的旧版本。若此前部署了与旧运行时绑定的应用 AOT 缓存，必须同步恢复对应缓存，或使用工具重新生成；本次开发设备的旧缓存保存在本地备份中，不在发行 RPM 内。运行时与应用缓存的输入哈希必须匹配，不要将新旧版本的缓存混用。
+如果激活事务被中断，使用 `recover` 恢复事务后再检查 `status`。回退保留 APK 和应用数据。若部署了与特定运行时绑定的应用 AOT 缓存，必须确保运行时与应用缓存的输入哈希匹配，不要混用不同版本的缓存。
 
-## 4. 非 1080x2160 屏幕与 Android 9 底包
+## 4. 显示尺寸、底包链接与硬件身份
 
-启动器会优先读取宿主 Wayland 输出尺寸；无法读取时回退到已验证的 1080x2160（Pixel 3a XL / bonito）。其他面板也可以在启动应用前显式设置以下环境变量（可写入用户会话的 `~/.config/environment.d/saildroid.conf`）：
+启动器会优先读取宿主 Wayland 输出尺寸；无法读取时回退到 1080x2160。其他面板可在启动应用前显式设置环境变量（可写入 `~/.config/environment.d/saildroid.conf`）：
 
 ```sh
 SAILDROID_DISPLAY_WIDTH=1080
 SAILDROID_DISPLAY_HEIGHT=2340
 ```
 
-Android 9（API 28）底包上 `libsdhost29.so` 会把 ART 自带的 `libjavacore.so`/`libopenjdk*.so` 交给 glibc 加载，以匹配随包发布的 Java 核心。WebView 的 Qt/WPE 宿主限制为宽 2160、高 4096、RGBA 帧 9 MiB。初始加载和窗口调整使用同一尺寸预算，超限时按比例缩小；触摸坐标按实际视图与宿主视口尺寸换算，已在预算内的视口保持原尺寸。
+Android 9（API 28）底包上 `libsdhost29.so` 会把 ART 自带的 `libjavacore.so`/`libopenjdk*.so` 交给 glibc 加载，以匹配随包发布的 Java 核心。WebView 的 Qt/WPE 宿主视口上限为宽 2160、高 4096（RGBA 帧预算 33.75 MiB），超限时按比例缩放并换算触摸坐标。
 
-机型/厂商等公开身份不是运行时写死的：`scripts/api29/capture-hardware-identity-phone.py` 在目标机上抓取公开字段，打包时经 `package-component.py --hardware-profile` 写入组件 `build.prop`，同时保存身份配置、解析结果和别名表用于追溯。Sailfish 硬件 ID 与 Android 底包 `ro.product.device` 不一致的端口在 `scripts/api29/hardware-identity-aliases.json` 登记别名（如 `fajita → OnePlus6T`）。指定配置但无法确认一致身份时打包报错；未指定配置时保留编译期默认值。
+机型/厂商等公开身份由 `scripts/api29/capture-hardware-identity-phone.py` 在目标机抓取，打包时经 `package-component.py --hardware-profile` 写入组件 `build.prop`（端口别名登记在 `scripts/api29/hardware-identity-aliases.json`）。
 
 ## 开发认证
 
-设备脚本默认使用 SSH 别名 `bonito`。自行配置 SSH 密钥，或在执行需要 `sshpass` 的历史开发脚本前提供环境变量 `SSHPASS`。公开源码和公开修订包都不携带调试密码或签名私钥。
+远程与设备测试脚本从环境变量（如 `SSHPASS` 或 `SAILDROID_TEST_PASSWORD`）读取认证凭据，或使用 SSH 密钥。公开源码和安装包均不携带调试密码或签名私钥。

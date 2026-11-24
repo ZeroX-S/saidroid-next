@@ -167,6 +167,7 @@ def main():
             'SdApkPackage.java': 'public final class SdApkPackage { public static final String NAME="org.example.permissions", APK=System.getProperty("test.apk"), DATA=System.getProperty("test.data"); }',
             'SdCamera.java': 'public final class SdCamera { public static boolean available() { return Boolean.getBoolean("test.camera"); } }',
             'SdAudio.java': 'public final class SdAudio { public static boolean recordingAvailable() { return Boolean.getBoolean("test.microphone"); } }',
+            'SdSipService.java': 'public final class SdSipService { public static boolean available() { return Boolean.getBoolean("test.sip"); } public static void permissionChanged() {} }',
             'RuntimePermissionsProbe.java': PROBE,
         }
         sources = []
