@@ -34,6 +34,11 @@ public final class SdNotificationPolicy implements InvocationHandler {
     }
     @Override public synchronized Object invoke(Object proxy,Method method,Object[] args)throws Throwable{
         String name=method.getName();if(name.equals("asBinder"))return binder;if(name.equals("toString"))return "SailDroid notification delivery disabled";if(name.equals("hashCode"))return System.identityHashCode(proxy);if(name.equals("equals"))return proxy==args[0];
+        if(name.equals("enqueueToast")){own(args[0]);SdToastQueue.enqueue((ITransientNotification)args[1],(Integer)args[2]);return null;}
+        if(name.equals("cancelToast")){own(args[0]);SdToastQueue.cancel((ITransientNotification)args[1]);return null;}
+        // Toast.TN removes its own view through the local WindowSession before
+        // finishToken. This backend has no separate WindowManager token table.
+        if(name.equals("finishToken")){own(args[0]);return null;}
         if(name.equals("areNotificationsEnabled")||name.equals("getPackageImportance")){own(args[0]);return name.equals("areNotificationsEnabled")?Boolean.FALSE:Integer.valueOf(NotificationManager.IMPORTANCE_NONE);}
         if(name.equals("areNotificationsEnabledForPackage")){own(args[0]);uid(args[1]);return false;}
         if(name.equals("getPrivateNotificationsAllowed"))return false; // No Android notification content can be displayed by this backend.
@@ -50,9 +55,23 @@ public final class SdNotificationPolicy implements InvocationHandler {
                     }return null;
                 }
                 if(name.equals("createNotificationChannelGroups")){for(Object value:((ParceledListSlice<?>)args[1]).getList()){NotificationChannelGroup group=(NotificationChannelGroup)value;write(entry("groups",group.getId()),group);}return null;}
-                if(name.equals("getNotificationChannel")){user(args[1]);own(args[2]);return read(entry("channels",(String)args[3]),NotificationChannel.CREATOR);}
+                if(name.equals("getNotificationChannel")){
+                    int channelIndex = 1;
+                    if (method.getParameterTypes().length == 4) {
+                        user(args[1]);
+                        own(args[2]);
+                        channelIndex = 3;
+                    }
+                    return read(entry("channels", (String) args[channelIndex]), NotificationChannel.CREATOR);
+                }
                 if(name.equals("getNotificationChannelForPackage")){uid(args[1]);return read(entry("channels",(String)args[2]),NotificationChannel.CREATOR);}
-                if(name.equals("getNotificationChannels")){own(args[1]);user(args[2]);return new ParceledListSlice<NotificationChannel>(list("channels",NotificationChannel.CREATOR));}
+                if(name.equals("getNotificationChannels")){
+                    if (method.getParameterTypes().length == 3) {
+                        own(args[1]);
+                        user(args[2]);
+                    }
+                    return new ParceledListSlice<NotificationChannel>(list("channels",NotificationChannel.CREATOR));
+                }
                 if(name.equals("getNotificationChannelGroups"))return new ParceledListSlice<NotificationChannelGroup>(list("groups",NotificationChannelGroup.CREATOR));
                 if(name.equals("getNotificationChannelGroup"))return read(entry("groups",(String)args[1]),NotificationChannelGroup.CREATOR);
                 if(name.equals("deleteNotificationChannel")){File file=entry("channels",(String)args[1]);if(file.exists()&&!file.delete())throw new IOException("Cannot delete notification channel");return null;}

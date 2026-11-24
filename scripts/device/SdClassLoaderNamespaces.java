@@ -31,6 +31,22 @@ public final class SdClassLoaderNamespaces {
         System.err.println("SDNAMESPACE=code_cache_bound|package="+app.packageName+"|roots="+roots.size()+"|cacheDirectories="+(paths.size()/2)+"|scope=private-application-native-cache");
     }
     private static final WeakHashMap<ClassLoader,Binding> bindings=new WeakHashMap<ClassLoader,Binding>();
+    public static String bindLegacy(ClassLoader loader,int sdk,String libraries,String permitted,boolean shared,boolean vendor){
+        if(!(loader instanceof dalvik.system.BaseDexClassLoader))return "Only DEX class loaders are supported";
+        if(vendor)return "Vendor class loaders are outside this application runtime";
+        try{
+            java.lang.reflect.Field pathList=dalvik.system.BaseDexClassLoader.class.getDeclaredField("pathList");pathList.setAccessible(true);
+            Object paths=pathList.get(loader);
+            java.lang.reflect.Field elements=paths.getClass().getDeclaredField("dexElements");elements.setAccessible(true);
+            ArrayList<String> dexPaths=new ArrayList<String>();
+            for(Object element:(Object[])elements.get(paths)){
+                java.lang.reflect.Field file=element.getClass().getDeclaredField("dexFile");file.setAccessible(true);
+                dalvik.system.DexFile dex=(dalvik.system.DexFile)file.get(element);
+                if(dex!=null)dexPaths.add(dex.getName());
+            }
+            return bind(loader,sdk,libraries,permitted,shared,String.join(File.pathSeparator,dexPaths));
+        }catch(ReflectiveOperationException failure){return "Cannot read the DEX class loader identity: "+failure;}
+    }
     private static final class Binding {
         final int sdk;final String libraries,permitted,dex;final boolean shared;
         Binding(int sdk,String libraries,String permitted,boolean shared,String dex){this.sdk=sdk;this.libraries=libraries;this.permitted=permitted;this.shared=shared;this.dex=dex;}

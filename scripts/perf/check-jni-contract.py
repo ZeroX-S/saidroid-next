@@ -131,7 +131,7 @@ def compile_java(workdir):
     return classes
 
 
-def _class_members(data):
+def _class_members(data, public_only=False):
     """(name -> set of descriptors) for fields and methods, straight from bytecode."""
     pos = 10
     count = int.from_bytes(data[8:10], 'big')
@@ -155,6 +155,9 @@ def _class_members(data):
         else:
             raise ValueError('unknown constant pool tag %d' % tag)
         index += 1
+    class_access = int.from_bytes(data[pos:pos + 2], 'big')
+    if public_only and not class_access & 5:
+        return {}
     pos += 6                                       # access, this, super
     interfaces = int.from_bytes(data[pos:pos + 2], 'big')
     pos += 2 + 2 * interfaces
@@ -163,6 +166,7 @@ def _class_members(data):
         total = int.from_bytes(data[pos:pos + 2], 'big')
         pos += 2
         for _ in range(total):
+            access = int.from_bytes(data[pos:pos + 2], 'big')
             name_index = int.from_bytes(data[pos + 2:pos + 4], 'big')
             descriptor_index = int.from_bytes(data[pos + 4:pos + 6], 'big')
             attributes = int.from_bytes(data[pos + 6:pos + 8], 'big')
@@ -170,7 +174,8 @@ def _class_members(data):
             for _attribute in range(attributes):
                 size = int.from_bytes(data[pos + 2:pos + 6], 'big')
                 pos += 6 + size
-            found.setdefault(utf8.get(name_index), set()).add(utf8.get(descriptor_index))
+            if not public_only or access & 5:
+                found.setdefault(utf8.get(name_index), set()).add(utf8.get(descriptor_index))
     return found
 
 

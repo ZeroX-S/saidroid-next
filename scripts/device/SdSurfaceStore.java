@@ -124,8 +124,20 @@ public final class SdSurfaceStore {
         }
     }
     public static synchronized void attach(Surface surface,long id)throws Exception{
-        Layer layer=layer(id);long old=nativeObject.getLong(surface);if(old==id)return;
-        if(old!=0)release(old);layer.references++;setNativeObject.invoke(surface,id);
+        Layer layer = layer(id);
+        long old = nativeObject.getLong(surface);
+        if (SdWindowHost.hardware()) {
+            long pointer = layer.hardwareSurface;
+            if (pointer == 0) throw new IllegalStateException("HWUI Surface is not allocated");
+            if (old == pointer) return;
+            if (old != 0) SdWindowHost.nativeHardwareRelease(old);
+            setNativeObject.invoke(surface, SdWindowHost.nativeHardwareRetain(pointer));
+            return;
+        }
+        if (old == id) return;
+        if (old != 0) release(old);
+        layer.references++;
+        setNativeObject.invoke(surface, id);
     }
     public static synchronized void attachControl(SurfaceControl control,long id,int width,int height)throws Exception{
         long old=controlObject.getLong(control);if(old!=id){if(old!=0)release(old);retain(id);controlObject.setLong(control,id);}
@@ -143,6 +155,19 @@ public final class SdSurfaceStore {
         if(old==control)return old;if(old!=0)release(old);return retain(control);
     }
     public static synchronized android.os.IBinder handle(long id){return layer(id).handle;}
+    public static synchronized long controlForSurface(long pointer){
+        for(Layer current:layers.values()){
+            if(!current.removed&&current.hardwareSurface==pointer&&pointer!=0)return current.id;
+        }
+        throw new IllegalArgumentException("Surface is outside the owned window layers");
+    }
+    public static synchronized long controlForHandle(android.os.IBinder handle){
+        if(handle==null)return 0;
+        for(Layer current:layers.values()){
+            if(!current.removed&&current.handle==handle)return current.id;
+        }
+        throw new IllegalArgumentException("SurfaceControl handle is outside the owned window layers");
+    }
     public static synchronized long nextFrame(long id){if(SdWindowHost.hardware())return 1;return layer(id).frameNumber+1;}
     private static void syncHardware(Layer l){if(l.hardwareSurface!=0){SdWindowHost.nativeHardwareZ(l.hardwareSurface,l.z);SdWindowHost.nativeHardwareLayout(l.hardwareSurface,l.frame.left,l.frame.top,Math.max(1,l.frame.width()),Math.max(1,l.frame.height()),l.visible);}}
     public static synchronized void position(long id,float x,float y){Layer l=layer(id);l.frame.offsetTo(Math.round(x),Math.round(y));syncHardware(l);}

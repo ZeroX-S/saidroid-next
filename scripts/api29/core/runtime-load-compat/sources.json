@@ -1,5 +1,5 @@
 {
-  "scope": "Restore only the existing target-SDK check in the deprecated loadLibrary(String,ClassLoader) overload; native loading, all other methods and existing guard implementation unchanged",
+  "scope": "Retain the deprecated Runtime.loadLibrary target SDK guard and canonicalize absolute filesystem JNI library paths before the ART pathname cache",
   "files": {
     "java/lang/Runtime.java": {
       "baseline_source": "third_party/art-standalone/libcore/ojluni/src/main/java/java/lang/Runtime.java",
@@ -7,9 +7,11 @@
       "upstream_source": "aosp-extra/Runtime-api29-190.java",
       "upstream_sha256": "aefa7806bad7a13b2e56e3ceadf741e8b59ce76fe33909ffaf8d72651d614e43",
       "upstream_url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/ojluni/src/main/java/java/lang/Runtime.java?format=TEXT",
-      "sha256": "69b74b60c172f2beae9e4f07612c730162aa060396efc1535af11538e54d48b3",
+      "sha256": "9615f4dd2a565f3ace54502fe7ce65048f95bc328b4bc6e2d9946b994b95fc59",
       "changed_line_before": "        //checkTargetSdkVersionForLoad(\"java.lang.Runtime#loadLibrary(String, ClassLoader)\");",
-      "changed_line_after": "        checkTargetSdkVersionForLoad(\"java.lang.Runtime#loadLibrary(String, ClassLoader)\");"
+      "changed_line_after": "        checkTargetSdkVersionForLoad(\"java.lang.Runtime#loadLibrary(String, ClassLoader)\");",
+      "native_load_before": "    private static String nativeLoad(String filename, ClassLoader loader) {\n        return nativeLoad(filename, loader, null);\n    }",
+      "native_load_after": "    private static String nativeLoad(String filename, ClassLoader loader) {\n        // ART keys JNI libraries by the supplied pathname. Resolve filesystem\n        // aliases before that lookup so JNI_OnLoad runs once for the same file.\n        // Keep relative linker names and native-loader failures on their path.\n        if (filename != null) {\n            File library = new File(filename);\n            if (library.isAbsolute()) {\n                try {\n                    filename = library.getCanonicalPath();\n                } catch (IOException unavailable) {\n                    // The native loader reports the original path and error.\n                }\n            }\n        }\n        return nativeLoad(filename, loader, null);\n    }"
     }
   }
 }

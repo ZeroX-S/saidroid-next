@@ -1,0 +1,97 @@
+{
+  "files": {
+    "source/android/app/PendingIntent.aidl": {
+      "sha256": "94a75436e40782ea09941138818a86bba31d15a999956b483b13d43b7445bc1e",
+      "url": "https://android.googlesource.com/platform/frameworks/base/+/android-9.0.0_r61/core/java/android/app/PendingIntent.aidl?format=TEXT"
+    },
+    "source/android/content/Intent.aidl": {
+      "sha256": "d5efd73f7a2ab8f35ada1dd8b5e125d0660f1699bdaf71833f552568ca9e5a90",
+      "url": "https://android.googlesource.com/platform/frameworks/base/+/android-9.0.0_r61/core/java/android/content/Intent.aidl?format=TEXT"
+    },
+    "source/android/net/rtp/AudioCodec.java": {
+      "sha256": "849b3bf0ac8d9d69774b4108661f2378f0be3cf2615359845b67653b6be8bd9f",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/rtp/AudioCodec.java?format=TEXT"
+    },
+    "source/android/net/rtp/AudioGroup.java": {
+      "sha256": "54785ed67ef3804990629d5c1e11b4ea5783ffa95f7ba6ab69a1e271955dd799",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/rtp/AudioGroup.java?format=TEXT"
+    },
+    "source/android/net/rtp/AudioStream.java": {
+      "sha256": "73f03dde738ffdba486d1b0c892e343299362f1d599a9e994e62cca7513cdca2",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/rtp/AudioStream.java?format=TEXT"
+    },
+    "source/android/net/rtp/RtpStream.java": {
+      "sha256": "4f7b47c5e200ceedddb215392bdbf8e52e5be05fa127b1bc21c37a16071ffe44",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/rtp/RtpStream.java?format=TEXT"
+    },
+    "source/android/net/sip/ISipService.aidl": {
+      "sha256": "6589d4efc44dd73d1a99ab93f3953801f756b8e67f80fb741c5f571a6f372d97",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/ISipService.aidl?format=TEXT"
+    },
+    "source/android/net/sip/ISipSession.aidl": {
+      "sha256": "d72a960f15f82cd9ac2841cf9fda3889a5b4334529927670fcd983f5fedbfb7b",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/ISipSession.aidl?format=TEXT"
+    },
+    "source/android/net/sip/ISipSessionListener.aidl": {
+      "sha256": "fcf2c5d3c502ebcfd6ce6b89a45836146781d543fbb5466f01107e3c5bc08fc5",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/ISipSessionListener.aidl?format=TEXT"
+    },
+    "source/android/net/sip/SimpleSessionDescription.java": {
+      "sha256": "0785225a8710c884b3c0375c598a23e9ac6512ab95d17d6c5cbd3cb279045f66",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/SimpleSessionDescription.java?format=TEXT"
+    },
+    "source/android/net/sip/SipAudioCall.java": {
+      "sha256": "a922206f831631f708c1937c43623a43d9179e3a828952ff2ab7fe2c1be80230",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/SipAudioCall.java?format=TEXT"
+    },
+    "source/android/net/sip/SipErrorCode.java": {
+      "sha256": "7e70b75a4e9d07444d82b0a6b2f4198dc46f5391d320536799442f28d4b870ed",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/SipErrorCode.java?format=TEXT"
+    },
+    "source/android/net/sip/SipException.java": {
+      "sha256": "0c0042995b30836f70b1080692c695f6ea001a1c82be15e52f7d5fafefb57cc5",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/SipException.java?format=TEXT"
+    },
+    "source/android/net/sip/SipManager.java": {
+      "sha256": "0bbc7d9e6edae050a9274aff9b2bf6c5133ea2e201acf07988dd18c73813c9c8",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/SipManager.java?format=TEXT"
+    },
+    "source/android/net/sip/SipProfile.aidl": {
+      "sha256": "50e6876eeff7584b1f186155fe9ead22b52d0044851931e98f839319f3a5eb3b",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/SipProfile.aidl?format=TEXT"
+    },
+    "source/android/net/sip/SipProfile.java": {
+      "sha256": "b60dca35c033fe221f431c73eb5d469f980a3ba556a803e32a4be12757bbd31b",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/SipProfile.java?format=TEXT"
+    },
+    "source/android/net/sip/SipRegistrationListener.java": {
+      "sha256": "d77bd134c4038ff09f8e20a6389c02eb9fead6027c0b6f69ab885a8af3676123",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/SipRegistrationListener.java?format=TEXT"
+    },
+    "source/android/net/sip/SipSession.java": {
+      "sha256": "20787992af604fbfecc760773fdf3bec0cfa3f8310e95f02c09135d75a0fffcd",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/SipSession.java?format=TEXT"
+    },
+    "source/android/net/sip/SipSessionAdapter.java": {
+      "sha256": "209ada31ee817ea689edaa831a9efcdc80ec75dfb02bd74ae52fe094cc078099",
+      "url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/java/android/net/sip/SipSessionAdapter.java?format=TEXT"
+    },
+    "source/dalvik/bytecode/Opcodes.java": {
+      "sha256": "b716e1f655e70a17643f9e8dab7e6767d168d3a437378c654f5ebb5a162fbcf2",
+      "url": "https://android.googlesource.com/platform/libcore/+/android-9.0.0_r61/dalvik/src/main/java/dalvik/bytecode/Opcodes.java?format=TEXT"
+    }
+  },
+  "native_inputs": {
+    "librtp_jni.so": "cb5b19aecf623a6d073b6b57949964b134ace0a97ed032927d12cd1bd5405055",
+    "libstagefright_amrnb_common.so": "5588d4b4d03541b1080325a02769752e91efd4d2dc81b1ce5439d97a3a5cbed1"
+  },
+  "native_source_image": {
+    "sha1": "e209114dd0dfc2f4e0d328f5fd7367fec39ee1bd",
+    "sha256": "86844d2edf6ba7c7f11261f6be3fb37788c985cfcf3b8924cfe9f57a1ccbc0a9",
+    "size": 426760297,
+    "url": "https://dl.google.com/android/repository/sys-img/android/arm64-v8a-28_r02.zip"
+  },
+  "native_source_url": "https://android.googlesource.com/platform/frameworks/opt/net/voip/+/android-9.0.0_r61/src/jni/rtp/",
+  "restored_members_sha256": "7244bd59ba92376efff75531932a8e70f6f28e6a749692e8377eaa15dda1995a",
+  "tag": "android-9.0.0_r61"
+}

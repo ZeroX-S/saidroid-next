@@ -7,6 +7,8 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteException;
+import android.os.Binder;
+import android.os.Parcel;
 import com.android.internal.os.IResultReceiver;
 import java.util.ArrayList;
 import java.util.Objects;
@@ -15,6 +17,8 @@ import java.util.Objects;
  * notification/alarm service receives these tokens. Dispatch uses the same
  * application Activity/Service/Broadcast backends as immediate requests. */
 final class SdPendingIntents {
+    private static final int SIP_IDENTITY = IBinder.FIRST_CALL_TRANSACTION + 0x534950;
+    private static final String SIP_IDENTITY_DESCRIPTOR = "org.saildroid.PendingIntentIdentity";
     private final SdActivityManagerService owner;
     private final ArrayList<Token> active = new ArrayList<Token>();
     SdPendingIntents(SdActivityManagerService owner) { this.owner = owner; }
@@ -44,6 +48,39 @@ final class SdPendingIntents {
             catch(RuntimeException failure) { throw failure; }
             catch(Exception failure) { throw new IllegalStateException("PendingIntent delivery failed",failure); }
         }
+        @Override public boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
+            if (code != SIP_IDENTITY) return super.onTransact(code, data, reply, flags);
+            if (Binder.getCallingUid() != Process.myUid()) throw new SecurityException("PendingIntent identity UID differs");
+            data.enforceInterface(SIP_IDENTITY_DESCRIPTOR);
+            synchronized (SdPendingIntents.this) {
+                reply.writeNoException();
+                reply.writeString(packageName);
+                reply.writeInt(Process.myUid());
+                reply.writeInt(canceled ? 1 : 0);
+            }
+            return true;
+        }
+    }
+
+    /** Verify the actual token even when the SIP account belongs to another process. */
+    static void requireSipOwner(PendingIntent intent, String packageName) throws RemoteException {
+        Parcel data = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
+        try {
+            data.writeInterfaceToken(SIP_IDENTITY_DESCRIPTOR);
+            if (!intent.getTarget().asBinder().transact(SIP_IDENTITY, data, reply, 0)) {
+                throw new SecurityException("SIP PendingIntent identity unavailable");
+            }
+            reply.readException();
+            if (!packageName.equals(reply.readString()) || reply.readInt() != Process.myUid() || reply.readInt() != 0) {
+                throw new SecurityException("SIP PendingIntent owner differs or token was canceled");
+            }
+        } finally { data.recycle(); reply.recycle(); }
+    }
+
+    static void sendSip(PendingIntent intent, String packageName, Intent fill) throws RemoteException {
+        requireSipOwner(intent, packageName);
+        intent.getTarget().send(101, fill, null, null, null, null, null);
     }
 
     private void ownPackage(String name) {

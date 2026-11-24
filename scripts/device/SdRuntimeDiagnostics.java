@@ -43,7 +43,7 @@ public final class SdRuntimeDiagnostics {
         final android.os.Looper main=android.os.Looper.getMainLooper();
         if(main!=null){
             main.dump(new android.util.Printer(){public void println(String text){System.err.println("SDDIAGNOSTICS=looper|"+text);}},"");
-            android.os.Message message=android.os.Message.obtain(new android.os.Handler(main),new Runnable(){public void run(){SdActivityHost.dumpState();SdDisplayFrames.dumpState();System.err.println("SDDIAGNOSTICS=main_complete");}});message.setAsynchronous(true);message.getTarget().sendMessage(message);
+            android.os.Message message=android.os.Message.obtain(new android.os.Handler(main),new Runnable(){public void run(){SdActivityHost.dumpState();SdDisplayFrames.dumpState();SdViewDump.dump();System.err.println("SDDIAGNOSTICS=main_complete");}});message.setAsynchronous(true);message.getTarget().sendMessage(message);
         }
         try{SdServices.activityManager().dumpBroadcasts();}catch(IllegalStateException notApplication){}
         if(System.getProperty("saidroid.apk")!=null)for(android.content.pm.PackageParser.Activity receiver:SdApkPackage.parsed().receivers)for(android.content.pm.PackageParser.ActivityIntentInfo filter:receiver.intents)for(int i=0;i<filter.countActions();i++)System.err.println("SDDIAGNOSTICS=manifest_receiver|class="+receiver.info.name+"|process="+receiver.info.processName+"|action="+filter.getAction(i));

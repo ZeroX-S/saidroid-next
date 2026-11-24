@@ -10,6 +10,7 @@
 
 typedef void *EGLDisplay;typedef void *EGLConfig;typedef void *EGLContext;typedef void *EGLSurface;typedef void *EGLSync;typedef void *EGLImage;typedef void *EGLClientBuffer;
 typedef unsigned EGLBoolean;typedef unsigned EGLenum;typedef int EGLint;typedef intptr_t EGLAttrib;typedef uint64_t EGLTime;
+enum { EGL_BUFFER_AGE_EXT = 0x313d };
 typedef unsigned GLenum;typedef unsigned GLuint;typedef int GLint;typedef int GLsizei;typedef unsigned char GLboolean;typedef float GLfloat;typedef char GLchar;typedef intptr_t GLintptr;typedef intptr_t GLsizeiptr;typedef int64_t GLint64;
 _Static_assert(sizeof(void*)==8&&sizeof(EGLint)==4,"API29 ARM64 EGL ABI");
 static pthread_once_t once=PTHREAD_ONCE_INIT;
@@ -103,9 +104,42 @@ static pthread_mutex_t frames_lock=PTHREAD_MUTEX_INITIALIZER;
 static struct queue_frames *queue_frames;
 static struct surface_queue *surface_queues;
 static struct queue_frames *queue_frame(int id){for(struct queue_frames *q=queue_frames;q;q=q->next)if(q->id==id)return q;struct queue_frames *q=calloc(1,sizeof(*q));if(q){q->id=id;q->next=queue_frames;queue_frames=q;}return q;}
-static void remember_queue(EGLSurface surface,int id){if(!surface)return;pthread_mutex_lock(&frames_lock);struct surface_queue *q=malloc(sizeof(*q));if(q){q->surface=surface;q->id=id;q->next=surface_queues;surface_queues=q;queue_frame(id);}pthread_mutex_unlock(&frames_lock);}
+static int remember_queue(EGLSurface surface, int id) {
+    pthread_mutex_lock(&frames_lock);
+    struct surface_queue *queue = malloc(sizeof(*queue));
+    if (queue) {
+        queue->surface = surface;
+        queue->id = id;
+        queue->next = surface_queues;
+        surface_queues = queue;
+        queue_frame(id);
+    }
+    pthread_mutex_unlock(&frames_lock);
+    return queue != NULL;
+}
 int64_t sd_hwui_submitted_frames(void *window){int id=hwui_identify?hwui_identify(window):0;if(!id)return -1;pthread_mutex_lock(&frames_lock);struct queue_frames *q=queue_frame(id);int64_t count=q?(int64_t)q->frames:-1;pthread_mutex_unlock(&frames_lock);return count;}
 static void submitted(EGLSurface surface){pthread_mutex_lock(&frames_lock);for(struct surface_queue *s=surface_queues;s;s=s->next)if(s->surface==surface){struct queue_frames *q=queue_frame(s->id);if(q)q->frames++;break;}pthread_mutex_unlock(&frames_lock);}
+EGLBoolean bionic_eglQuerySurface(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint *value) {
+    EGLBoolean (*query)(EGLDisplay, EGLSurface, EGLint, EGLint *) = entry("eglQuerySurface");
+    if (!query) return unsupported(0x3001);
+    pthread_rwlock_rdlock(&window_mappings);
+    EGLBoolean result = query(display, surface, attribute, value);
+    pthread_rwlock_unlock(&window_mappings);
+    if (result && value && attribute == EGL_BUFFER_AGE_EXT) {
+        /* libhybris reports a fixed NATIVE_WINDOW_BUFFER_AGE of two while
+         * these Wayland queues rotate three buffers. Age zero requests a
+         * complete HWUI redraw until the native queue supplies a real age. */
+        pthread_mutex_lock(&frames_lock);
+        for (struct surface_queue *queue = surface_queues; queue; queue = queue->next) {
+            if (queue->surface == surface) {
+                *value = 0;
+                break;
+            }
+        }
+        pthread_mutex_unlock(&frames_lock);
+    }
+    return result;
+}
 EGLBoolean bionic_eglDestroySurface(EGLDisplay display,EGLSurface surface){EGLBoolean(*fn)(EGLDisplay,EGLSurface)=entry("eglDestroySurface");if(!fn)return unsupported(0x3001);pthread_rwlock_wrlock(&window_mappings);EGLBoolean result=fn(display,surface);pthread_rwlock_unlock(&window_mappings);if(result){pthread_mutex_lock(&frames_lock);struct surface_queue **at=&surface_queues;while(*at){if((*at)->surface==surface){struct surface_queue *old=*at;*at=old->next;free(old);break;}at=&(*at)->next;}pthread_mutex_unlock(&frames_lock);}return result;}
 EGLSurface bionic_eglCreateWindowSurface(EGLDisplay d,EGLConfig c,void *window,const EGLint *attrs){
     int id=hwui_identify?hwui_identify(window):0;
@@ -116,8 +150,12 @@ EGLSurface bionic_eglCreateWindowSurface(EGLDisplay d,EGLConfig c,void *window,c
         unsupported(0x300b);return NULL;
     }
     EGLSurface result=sd_egl_host_create_window(d,c,native,attrs);
+    if (result && !remember_queue(result, id)) {
+        bionic_eglDestroySurface(d, result);
+        unsupported(0x3003);
+        result = NULL;
+    }
     fprintf(stderr,"SDHWUI=egl_window_surface|id=%d|result=%p|queue=libhybris|cpu_readback=0\n",id,result);
-    remember_queue(result,id);
     return result;
 }
 /* Raw native-window entry for the owned parent backdrop too. Keeping every
@@ -247,6 +285,7 @@ OVERRIDE(eglInitialize)
 OVERRIDE(eglPresentationTimeANDROID)
 OVERRIDE(eglQueryString)
 OVERRIDE(eglQueryStringImplementationANDROID)
+OVERRIDE(eglQuerySurface)
 OVERRIDE(eglSetDamageRegionKHR)
 OVERRIDE(eglSwapBuffers)
 OVERRIDE(eglSwapInterval)

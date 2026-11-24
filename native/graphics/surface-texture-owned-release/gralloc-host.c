@@ -131,6 +131,22 @@ int sd_tex_lock_async0(void*self,Handle h,unsigned usage,const Rect*r,void**out,
 int sd_tex_lock_async0(void*self,Handle h,unsigned usage,const Rect*r,void**out,int fence,int*pixel,int*stride){(void)self;return sd_texture_lock(h,usage,r,out,fence,pixel,stride);}
 int sd_tex_lock640(void*self,Handle h,uint64_t producer,uint64_t consumer,const Rect*r,void**out,int fence,int*pixel,int*stride) __asm__("bionic__ZN7android19GraphicBufferMapper9lockAsyncEPK13native_handlemmRKNS_4RectEPPviPiS9_");
 int sd_tex_lock640(void*self,Handle h,uint64_t producer,uint64_t consumer,const Rect*r,void**out,int fence,int*pixel,int*stride){(void)self;return sd_texture_lock(h,producer|consumer,r,out,fence,pixel,stride);}
+/* The retained API28 libui omits the optional pixel/stride output parameters. */
+int sd_tex_lock_api28(void*self,Handle h,unsigned usage,const Rect*r,void**out)
+    __asm__("bionic__ZN7android19GraphicBufferMapper4lockEPK13native_handlejRKNS_4RectEPPv");
+int sd_tex_lock_api28(void*self,Handle h,unsigned usage,const Rect*r,void**out) {
+    (void)self;return sd_texture_lock(h,usage,r,out,-1,NULL,NULL);
+}
+int sd_tex_lock_async_api28(void*self,Handle h,unsigned usage,const Rect*r,void**out,int fence)
+    __asm__("bionic__ZN7android19GraphicBufferMapper9lockAsyncEPK13native_handlejRKNS_4RectEPPvi");
+int sd_tex_lock_async_api28(void*self,Handle h,unsigned usage,const Rect*r,void**out,int fence) {
+    (void)self;return sd_texture_lock(h,usage,r,out,fence,NULL,NULL);
+}
+int sd_tex_lock64_api28(void*self,Handle h,uint64_t producer,uint64_t consumer,const Rect*r,void**out,int fence)
+    __asm__("bionic__ZN7android19GraphicBufferMapper9lockAsyncEPK13native_handlemmRKNS_4RectEPPvi");
+int sd_tex_lock64_api28(void*self,Handle h,uint64_t producer,uint64_t consumer,const Rect*r,void**out,int fence) {
+    (void)self;return sd_texture_lock(h,producer|consumer,r,out,fence,NULL,NULL);
+}
 int sd_tex_unlock0(void*self,Handle h) __asm__("bionic__ZN7android19GraphicBufferMapper6unlockEPK13native_handle");
 int sd_tex_unlock0(void*self,Handle h){(void)self;return sd_texture_unlock(h,NULL);}
 int sd_tex_unlock_async0(void*self,Handle h,int*fence) __asm__("bionic__ZN7android19GraphicBufferMapper11unlockAsyncEPK13native_handlePi");

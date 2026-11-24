@@ -26,8 +26,27 @@ JNIEXPORT void JNICALL Runtime_gc(JNIEnv *env, jobject runtime)
         (*env)->DeleteLocalRef(env, policy);
         return;
     }
+    jclass missing_method = (*env)->FindClass(env, "java/lang/NoSuchMethodError");
+    if (missing_method == NULL) {
+        (*env)->DeleteLocalRef(env, policy_class);
+        (*env)->DeleteLocalRef(env, policy);
+        return;
+    }
     jmethodID explicit_gc = (*env)->GetMethodID(env, policy_class, "onExplicitGc", "()V");
     (*env)->DeleteLocalRef(env, policy_class);
+    if (explicit_gc == NULL) {
+        /* API28's Policy has no explicit-GC callback. Clear only the lookup's
+         * missing-method failure and restore every other pending exception. */
+        jthrowable failure = (*env)->ExceptionOccurred(env);
+        if (failure != NULL) {
+            (*env)->ExceptionClear(env);
+            if (!(*env)->IsInstanceOf(env, failure, missing_method)) {
+                (*env)->Throw(env, failure);
+            }
+            (*env)->DeleteLocalRef(env, failure);
+        }
+    }
+    (*env)->DeleteLocalRef(env, missing_method);
     if (explicit_gc != NULL) (*env)->CallVoidMethod(env, policy, explicit_gc);
     (*env)->DeleteLocalRef(env, policy);
     if ((*env)->ExceptionCheck(env)) return;

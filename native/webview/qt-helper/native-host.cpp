@@ -51,6 +51,7 @@ int main(int argc, char **argv) {
          ++it) {
       std::string value = it.value();
       replace(value, "${SD_PROFILE}", home);
+      replace(value, "${SD_COMPONENT}", here.parent_path().string());
       replace(value, "/run/user/100000",
               "/run/user/" + std::to_string(getuid()));
       if (setenv(it.key().c_str(), value.c_str(), 1))

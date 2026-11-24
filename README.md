@@ -14,6 +14,31 @@ Sailfish OS 上的独立 ART / Android 10（API 29）兼容运行时。Android �
 
 本包不包含 QQ、微信、小红书、知乎或其他商业应用 APK、账号数据、用户签名密钥及应用 AOT 缓存。
 
+### WPE WebView 依赖
+
+启用 WPE WebView 的运行时需要安装以下 aarch64 软件包。RPM 使用 `>=` 声明版本下限，下限取自随包的 `share/build/webview-runtime-20261109/runtime-manifest.json`。
+
+| 软件包 | 最低版本 |
+| --- | --- |
+| libepoxy | 1.5.11-768.1 |
+| libwpe | 1.17.0-768.1 |
+| wpebackend-fdo | 1.17.0-768.1 |
+| wpewebkit2 | 2.54.2-768.1 |
+| wpewebkit2-qt5 | 2.54.2-768.1 |
+
+这些软件包由 Atlantic Engine 仓库提供。手动下载时，从 aarch64 下载目录选择达到上述版本下限的五个 RPM。仓库持续更新构建号，较新的构建也满足对应的最低版本要求。[aarch64 下载目录](https://specsierra.github.io/atlantic-engine/aarch64/) · [软件源配置](https://specsierra.github.io/atlantic-engine/atlantic-ci.repo) · [上游项目](https://github.com/SpecSierra/atlantic-engine)
+
+也可以在设备上以 root 身份添加软件源并安装依赖。
+
+```sh
+rpm --import https://specsierra.github.io/atlantic-engine/RPM-GPG-KEY-atlantic-ci
+zypper ar -f https://specsierra.github.io/atlantic-engine/atlantic-ci.repo
+zypper ref atlantic-ci
+zypper in libepoxy libwpe wpebackend-fdo wpewebkit2 wpewebkit2-qt5
+```
+
+软件源公钥的完整指纹为 `A6CCF45E59F159B687BF268C5AE893A84F8F9C4B`。手动下载的 RPM 可与 SailDroid RPM 一起通过 `zypper in` 安装，所需版本由包管理器检查。
+
 ## 当前状态
 
 此前 r321n 在 2026-11-06 的四应用可见启动采集通过，QQ、微信、小红书、知乎各取得两张新帧，并验证前台进程和窗口焦点。微信、小红书处于未登录欢迎页；这不代表登录后功能已通过。

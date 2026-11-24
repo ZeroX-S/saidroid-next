@@ -17,7 +17,7 @@ public final class SdDisplayFrames {
     static {
         try {
             dispatch = Class.forName("android.view.DisplayEventReceiver")
-                    .getDeclaredMethod("dispatchVsync", long.class, long.class, int.class);
+                    .getDeclaredMethod("dispatchVsync", long.class, int.class, int.class);
             dispatch.setAccessible(true);
         } catch (Exception failure) { throw new ExceptionInInitializerError(failure); }
     }
@@ -62,7 +62,7 @@ public final class SdDisplayFrames {
                 synchronized(SdDisplayFrames.class){if(receivers.get(receiver.id)!=receiver)return;}
                 Object target=receiver.target.get();
                 if(target==null){dispose(receiver.id);return;}
-                try{dispatch.invoke(target,timestamp,(long)SdDisplayShim.DISPLAY_ID,++receiver.frame);}
+                try{dispatch.invoke(target,timestamp,SdDisplayShim.DISPLAY_ID,++receiver.frame);}
                 catch(Exception failure){throw new IllegalStateException("Wayland frame callback failed",failure);}
             }
           });

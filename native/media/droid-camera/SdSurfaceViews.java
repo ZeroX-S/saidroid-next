@@ -7,6 +7,7 @@ import java.util.*;
 public final class SdSurfaceViews {
  private static boolean installed;private static long nextSession=1;
  private static final HashMap<Long,HashSet<Long>> sessions=new HashMap<Long,HashSet<Long>>();
+ private static final HashMap<Long,Long> sessionParents=new HashMap<Long,Long>();
  private static final LinkedHashMap<Long,Node> nodes=new LinkedHashMap<Long,Node>();
  private static final Method transaction;private static final Field layers,frame,z,visible,nativeObject;
  private static final Method setSurface;
@@ -30,13 +31,22 @@ public final class SdSurfaceViews {
 
  public static synchronized void install(){if(installed)return;nativeInstall();installed=true;}
  public static synchronized long session(){long id=nextSession++;sessions.put(id,new HashSet<Long>());System.err.println("SDSURFACEVIEW=session_created|id="+id+"|backend=local-wayland");return id;}
- public static synchronized void sessionRelease(long id,boolean kill){HashSet<Long> children=sessions.remove(id);if(children==null)return;if(kill)for(long child:new HashSet<Long>(children))remove(child);}
+ public static synchronized long session(long surface){
+  long parent=SdSurfaceStore.controlForSurface(surface);
+  long id=session();
+  SdSurfaceStore.retain(parent);
+  sessionParents.put(id,parent);
+  System.err.println("SDSURFACEVIEW=session_scoped|id="+id+"|parent="+parent);
+  return id;
+ }
+ public static synchronized void sessionRelease(long id,boolean kill){HashSet<Long> children=sessions.remove(id);if(children==null)return;if(kill)for(long child:new HashSet<Long>(children))remove(child);Long parent=sessionParents.remove(id);if(parent!=null)SdSurfaceStore.release(parent);}
  @SuppressWarnings("unchecked") private static Object layer(long id){try{Object value=((Map<Long,Object>)layers.get(null)).get(id);if(value==null)throw new IllegalArgumentException("Unknown local SurfaceControl "+id);return value;}catch(IllegalAccessException error){throw new IllegalStateException(error);}}
  private static Rect bounds(long id){if(id==0)return new Rect(0,0,SdDisplayShim.WIDTH,SdDisplayShim.HEIGHT);try{return new Rect((Rect)frame.get(layer(id)));}catch(IllegalAccessException error){throw new IllegalStateException(error);}}
  private static int depth(long id){if(id==0)return 0;try{return z.getInt(layer(id));}catch(IllegalAccessException error){throw new IllegalStateException(error);}}
  private static boolean shown(long id){if(id==0)return true;try{return visible.getBoolean(layer(id));}catch(IllegalAccessException error){throw new IllegalStateException(error);}}
  @SuppressWarnings("unchecked") private static void queue(long id,Runnable operation){synchronized(SdSurfaceControls.class){try{((ArrayList<Runnable>)transaction.invoke(null,id)).add(operation);}catch(ReflectiveOperationException error){throw new IllegalStateException(error);}}}
  public static synchronized long create(long session,String name,int width,int height,int format,int flags,long parent){
+  if(parent==0&&sessionParents.containsKey(session))parent=sessionParents.get(session);
   if(!sessions.containsKey(session))throw new IllegalArgumentException("Unknown local Surface session");if((flags&0x80)!=0)throw new UnsupportedOperationException("Protected SurfaceView is unavailable");if(width<0||height<0||width>8192||height>8192)throw new IllegalArgumentException("Invalid SurfaceView extent");if(!SdWindowHost.hardware())throw new UnsupportedOperationException("SurfaceView requires real HWUI queues");Rect extent=bounds(parent);Node node=new Node(SdSurfaceStore.create());node.parent=parent;node.session=session;node.width=width==0?Math.max(1,extent.width()):width;node.height=height==0?Math.max(1,extent.height()):height;node.shown=(flags&4)==0;node.color=(flags&0xF0000)==0x20000;nodes.put(node.id,node);sessions.get(session).add(node.id);SdSurfaceStore.retain(node.id);if(parent!=0)SdSurfaceStore.retain(parent);sync(node);if(node.color)paint(node);System.err.println("SDSURFACEVIEW=created|id="+node.id+"|parent="+parent+"|size="+node.width+"x"+node.height+"|color="+node.color+"|name="+name);return node.id;
  }
  private static void sync(Node node){if(node.removed)return;Rect parent=bounds(node.parent);int left=parent.left+Math.round(node.x),top=parent.top+Math.round(node.y);SdSurfaceStore.layout(node.id,new Rect(left,top,left+node.width,top+node.height),node.shown&&shown(node.parent));long value=(long)depth(node.parent)+node.depth;SdSurfaceStore.z(node.id,(int)Math.max(Integer.MIN_VALUE,Math.min(Integer.MAX_VALUE,value)));}
@@ -59,6 +69,12 @@ public final class SdSurfaceViews {
  public static synchronized long copy(long id){Node node=nodes.get(id);if(node!=null)node.handles++;return SdSurfaceStore.retain(id);}
  public static synchronized void release(long id){if(id==0)return;Node node=nodes.get(id);if(node!=null){if(node.handles<=0)throw new IllegalStateException("Unbalanced SurfaceControl release");node.handles--;if(node.handles==0)remove(id);}SdSurfaceStore.release(id);if(node!=null)forget(node);}
  public static void reparent(long t,long id,long parent){queue(t,()->{synchronized(SdSurfaceViews.class){Node node=nodes.get(id);if(node==null)throw new UnsupportedOperationException("Root reparent is not supported");if(parent==0){remove(id);return;}for(long at=parent;at!=0;){if(at==id)throw new IllegalArgumentException("Surface parent cycle");Node other=nodes.get(at);at=other==null?0:other.parent;}bounds(parent);SdSurfaceStore.retain(parent);long old=node.parent;node.parent=parent;if(old!=0)SdSurfaceStore.release(old);sync(node);descendants(id);}});}
+ public static void reparent(long transaction,long id,IBinder parent){
+  reparent(transaction,id,SdSurfaceStore.controlForHandle(parent));
+ }
+ public static void destroy(long transaction,long id){
+  queue(transaction,()->{synchronized(SdSurfaceViews.class){remove(id);}});
+ }
  public static synchronized void destroy(long id){remove(id);}
  public static void corner(long t,long id,float radius){if(radius!=0)throw new UnsupportedOperationException("Rounded SurfaceView crops are not supported");queue(t,()->bounds(id));}
 }

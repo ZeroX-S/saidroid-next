@@ -13,6 +13,7 @@ public final class SdWindowHost {
     private static native void nativeRequestFrame();
     private static native void nativePresent(int[] pixels,int width,int height);
     private static native void nativeStop();
+    private static native boolean nativeMoveTaskToBack();
     private static native int nativeClientHeight();
     private static native void nativeHardwareInitialize();
     public static native long nativeHardwareRetain(long pointer);
@@ -30,7 +31,17 @@ public final class SdWindowHost {
     public static native void nativeHardwareRelease(long pointer);
     public static synchronized void install(String library) {
         if(installed)return;
-        System.load(library);nativeSelectHardware(hardwareSelected);nativeInstall();if(hardware())nativeHardwareInitialize();installed=true;
+        System.load(library);
+        nativeSelectHardware(hardwareSelected);
+        nativeInstall();
+        if(hardware()) {
+            nativeHardwareInitialize();
+            // Restore BufferQueue Surface natives after the window replacements.
+            SdTexture.install();
+            SdCamera.install();
+            SdSurfaceViews.install();
+        }
+        installed=true;
     }
     public static synchronized void start(String title,String appId) {
         if(started)return;
@@ -56,6 +67,7 @@ public final class SdWindowHost {
     private static native java.nio.ByteBuffer nativeDirectAcquire();
     private static native boolean nativeDirectCommit();
     public static void stop(){if(started){nativeStop();started=false;}}
+    public static boolean moveTaskToBack(){return started&&nativeMoveTaskToBack();}
     private static void postEvent(Runnable callback){Message event=Message.obtain(main,callback);event.setAsynchronous(true);main.sendMessage(event);}
     private static void onNativeFrame(long timestamp){SdDisplayFrames.onFrame(timestamp);}
     private static void onNativeInput(final int action,final int id,final float x,final float y,final long timestamp){

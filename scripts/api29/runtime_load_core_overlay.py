@@ -21,7 +21,11 @@ def verify_source_family(source):
         after = '        checkTargetSdkVersionForLoad("java.lang.Runtime#loadLibrary(String, ClassLoader)");'
         assert entry['changed_line_before'] == before and entry['changed_line_after'] == after
         assert baseline.count(before) == 1
-        assert (directory / name).read_text() == baseline.replace(before, after)
+        wrapper_before = entry['native_load_before']
+        wrapper_after = entry['native_load_after']
+        assert baseline.count(wrapper_before) == 1
+        assert (directory / name).read_text() == baseline.replace(before, after).replace(
+            wrapper_before, wrapper_after)
     return record
 
 

@@ -1108,6 +1108,19 @@ public class Runtime {
 
     // TODO: should be synchronized, but dalvik doesn't support synchronized internal natives.
     private static String nativeLoad(String filename, ClassLoader loader) {
+        // ART keys JNI libraries by the supplied pathname. Resolve filesystem
+        // aliases before that lookup so JNI_OnLoad runs once for the same file.
+        // Keep relative linker names and native-loader failures on their path.
+        if (filename != null) {
+            File library = new File(filename);
+            if (library.isAbsolute()) {
+                try {
+                    filename = library.getCanonicalPath();
+                } catch (IOException unavailable) {
+                    // The native loader reports the original path and error.
+                }
+            }
+        }
         return nativeLoad(filename, loader, null);
     }
     private static native String nativeLoad(String filename, ClassLoader loader, Class<?> caller);

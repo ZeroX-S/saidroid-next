@@ -21,17 +21,18 @@ import org.json.JSONObject;
 public class WebViewGeometryContract {
     static void check(boolean value,String reason) { if(!value)throw new AssertionError(reason); }
     public static void main(String[] args)throws Exception {
-        // Default, supported tall viewport, new port, QHD, landscape, extremes.
+        // Default, supported tall viewport, new port, QHD, tablet, landscape, extremes.
         int[][] cases={{1080,2160},{720,2560},{1080,2340},{1440,3200},{2340,1080},
-                       {2160,4096},{4096,2160},{1,Integer.MAX_VALUE},
+                       {1600,2560},{2160,4096},{4096,2160},{1,Integer.MAX_VALUE},
                        {Integer.MAX_VALUE,1},{Integer.MAX_VALUE,Integer.MAX_VALUE},
                        {0,0},{-10,-20}};
+        check(SdWebEngine.MAX_FRAME_BYTES==2160*4096*4,"Java/native frame budget");
         for(int[] view:cases) {
             int[] size=SdWebEngine.hostSize(view[0],view[1]);
             int w=size[0],h=size[1];
             check(w>0&&h>0&&w<=2160&&h<=4096,"host dimensions");
-            check((long)w*h*4<=9*1024*1024,"frame budget");
-            if(view[0]>0&&view[1]>0&&view[0]<=2160&&view[1]<=4096&&(long)view[0]*view[1]*4<=9*1024*1024)
+            check((long)w*h*4<=SdWebEngine.MAX_FRAME_BYTES,"frame budget");
+            if(view[0]>0&&view[1]>0&&view[0]<=2160&&view[1]<=4096)
                 check(w==view[0]&&h==view[1],"supported geometry must stay 1:1");
             if(view[0]<1||view[1]<1)continue;
             // A rendered point at these fractions must hit the same host point.
@@ -68,7 +69,7 @@ int main() {
         assert(std::abs(sd_webview_coordinate(touch.at("y"),touch.at("viewHeight"),height/2)-y*(height/2)/height)<0.001);
         ++count;
     }
-    assert(count==40);
+    assert(count==44);
     // Existing clients send host pixels; missing extents must remain compatible.
     assert(sd_webview_coordinate(123.5,0,900)==123.5);
     // Moves outside the View must not get pinned to an edge.
@@ -93,7 +94,7 @@ with tempfile.TemporaryDirectory(prefix='sd-webview-geometry-') as d:
                                        'WebViewGeometryContract'], text=True)
     # Preserve the production JSON packets as diagnostic output.
     rows = [json.loads(line) for line in packets.splitlines()]
-    assert len(rows) == 40
+    assert len(rows) == 44
     subprocess.run(['g++', '-std=c++11', '-O2', '-Wall', '-Wextra', '-Werror',
                     '-I'+str(repo), str(root/'input.cpp'), '-o', str(root/'input')], check=True)
     subprocess.run([str(root/'input')], input=packets, text=True, check=True)

@@ -11,6 +11,8 @@
 #include <unistd.h>
 #include <vector>
 namespace fs=std::filesystem;
+extern "C" int sd_import_host_product_properties(void *private_libc);
+extern "C" int sd_import_host_timezone_properties(void *private_libc, char timezone[92]);
 struct prop_info;
 static void require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 static void trusted(const fs::path& path,bool directory){
@@ -44,7 +46,22 @@ int main(int argc,char**argv){try{
  input.close();ancestors(library.parent_path());trusted(library,false);
  require(setenv("ANDROID_ROOT",root.c_str(),1)==0&&setenv("SD_BUILD_PROP",properties.c_str(),1)==0,
          "Cannot select component property store");
+ // Resolve the copied backend's private dependencies through the component
+ // before its historical RUNPATH takes effect.
+ std::vector<void*> dependency_handles;
+ for(const char* name:{"libpthread_bio.so.0","libunwind.so.8"}){
+  const auto dependency=root/"lib"/name;
+  if(fs::exists(dependency)){
+   trusted(dependency,false);
+   void* loaded=dlopen(dependency.c_str(),RTLD_NOW|RTLD_LOCAL);
+   require(loaded!=nullptr,dlerror());
+   dependency_handles.push_back(loaded);
+  }
+ }
  void* handle=dlopen(library.c_str(),RTLD_NOW|RTLD_LOCAL);require(handle!=nullptr,dlerror());
+ require(sd_import_host_product_properties(handle)>=0,"Host product property import failed");
+ char timezone[92]{};
+ require(sd_import_host_timezone_properties(handle,timezone)>=0,"Host timezone import failed");
  auto get=reinterpret_cast<int(*)(const char*,char*)>(dlsym(handle,"bionic___system_property_get"));
  auto each=reinterpret_cast<int(*)(void(*)(const prop_info*,void*),void*)>(dlsym(handle,"bionic___system_property_foreach"));
  auto read=reinterpret_cast<int(*)(const prop_info*,char*,char*)>(dlsym(handle,"bionic___system_property_read"));
@@ -53,5 +70,7 @@ int main(int argc,char**argv){try{
      fs::canonical(actual.dli_fname)==library,"Native property implementation owner differs");
  if(argc>1){char value[256]{};const int length=get(argv[1],value);require(length>=0&&length<256,"Native property value invalid");std::cout<<(length?value:(argc==3?argv[2]:""))<<'\n';}
  else{Reader reader{read,{}};require(each(Reader::collect,&reader)==0,"Native property enumeration failed");std::sort(reader.rows.begin(),reader.rows.end());for(const auto&row:reader.rows)std::cout<<'['<<row.first<<"]: ["<<row.second<<"]\n";}
- dlclose(handle);return 0;
+ dlclose(handle);
+ for(void* dependency:dependency_handles)dlclose(dependency);
+ return 0;
  }catch(const std::exception&e){std::cerr<<"getprop: "<<e.what()<<'\n';return 1;}}

@@ -40,6 +40,7 @@ static const char xml[] = R"(<node><interface name='org.saildroid.HostManager1'>
  <method name='StartService'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='StartActivityProcess'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='StartProviderProcess'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
+ <method name='StartReceiverProcess'><arg type='s' direction='in'/><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='Activate'><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='ActivateApplication'><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='Close'><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
@@ -272,9 +273,9 @@ static void dispatch(GDBusConnection *, const gchar *sender, const gchar *,
       if (!valid_package(a) || std::string(a).rfind("org.saildroid.", 0) == 0)
         throw std::runtime_error("Invalid application");
       launch({"--package", a});
-    } else if (m == "StartService" || m == "StartActivityProcess" || m == "StartProviderProcess") {
+    } else if (m == "StartService" || m == "StartActivityProcess" || m == "StartProviderProcess" || m == "StartReceiverProcess") {
       g_variant_get(params, "(&s&s&s)", &a, &b, &c);
-      if (!valid_package(a) || !valid_package(b) ||
+      if (!valid_package(a) || !valid_component(b) ||
           !std::regex_match(c, std::regex("[A-Za-z0-9_.]+(:[A-Za-z0-9_.]+)?")))
         throw std::runtime_error("Invalid service identity");
       auto it = entries.find(a);
@@ -290,7 +291,7 @@ static void dispatch(GDBusConnection *, const gchar *sender, const gchar *,
       if (!caller)
         throw std::runtime_error(
             "Service caller differs from application family");
-      launch({"--package", a, m == "StartService" ? "--service" : m == "StartActivityProcess" ? "--activity-process" : "--provider-process", b, "--process", c, "--owner-launch",
+      launch({"--package", a, m == "StartService" ? "--service" : m == "StartActivityProcess" ? "--activity-process" : m == "StartReceiverProcess" ? "--receiver-process" : "--provider-process", b, "--process", c, "--owner-launch",
               it->second.record.at("launch_id"), "--component",
               it->second.record.at("component")});
     } else {
@@ -324,7 +325,7 @@ static void dispatch(GDBusConnection *, const gchar *sender, const gchar *,
           if(r.value("role","")=="service" &&
              r.value("package","")==host.record.value("package","") &&
              r.value("owner_launch_id","")==host.record.value("launch_id","") &&
-             r.value("window_mapped",false) && !r.value("close_requested",false) &&
+             r.value("window_mapped",false) && !r.value("task_background",false) && !r.value("close_requested",false) &&
              alive(r) && r.value("activation_serial",uint64_t(0))>=serial){
             selected=child;serial=r.value("activation_serial",uint64_t(0));
           }
@@ -360,10 +361,13 @@ static void dispatch(GDBusConnection *, const gchar *sender, const gchar *,
             host.record["visibility"] = number;
           else if (event == "first-frame")
             host.record["first_frame_seen"] = true;
+          else if (event == "task-background")
+            host.record["task_background"] = number != 0;
           else if (event == "mapped") {
+            bool newly_mapped = !host.record.value("window_mapped", false);
             host.record["window_mapped"] = true;
             auto selected = entries.find(latest_activation);
-            if (host.record.value("role", "") == "service" &&
+            if (newly_mapped && host.record.value("role", "") == "service" &&
                 selected != entries.end() &&
                 selected->second.record.value("package", "") ==
                     host.record.value("package", "") &&
@@ -374,7 +378,7 @@ static void dispatch(GDBusConnection *, const gchar *sender, const gchar *,
               latest_activation = a;
               host.record["activation_serial"] = ++activation_serial;
             }
-            if (latest_activation != a && entries.count(latest_activation) &&
+            if (newly_mapped && latest_activation != a && entries.count(latest_activation) &&
                 alive(entries[latest_activation].record))
               try {
                 control(entries[latest_activation].record, "activate");

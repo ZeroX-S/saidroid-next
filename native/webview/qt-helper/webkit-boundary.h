@@ -10,7 +10,7 @@ namespace SdWebApi {
 template<class T> T web(const char *name){return reinterpret_cast<T>(QLibrary::resolve("/usr/lib64/libWPEWebKit-2.0.so.1",name));}
 template<class T> T glib(const char *name){return reinterpret_cast<T>(QLibrary::resolve("/usr/lib64/libglib-2.0.so.0",name));}
 template<class T> T object(const char *name){return reinterpret_cast<T>(QLibrary::resolve("/usr/lib64/libgobject-2.0.so.0",name));}
-template<class T> T soup(const char *name){return reinterpret_cast<T>(QLibrary::resolve("/usr/lib64/libsoup-3.0.so.0",name));}
+template<class T> T soup(const char *name){return reinterpret_cast<T>(QLibrary::resolve("libsoup-3.0.so.0",name));}
 struct List {void *data;List *next,*previous;};
 using Async=void(*)(void*,void*,void*);
 }
@@ -66,8 +66,8 @@ class WebBoundary : public QObject {
         void *action=getAction(decision),*request=action?getRequest(action):nullptr;if(!request)return false;
         QString url=QString::fromUtf8(getUri(request));const char *rawMethod=getMethod?getMethod(request):nullptr;QString method=rawMethod?QString::fromUtf8(rawMethod):"GET";
         if(url==programmatic&&type==0){programmatic.clear();return false;}
-        // Android does not run shouldOverrideUrlLoading for application loadUrl
-        // or POST form submissions. WebKit retains its native POST request.
+        // Android does not run shouldOverrideUrlLoading for application HTML
+        // and URL loads or POST form submissions. WebKit retains native POST.
         if(method!="GET"||url=="about:blank")return false;
         const quint64 id=++sequence;policies.insert(id,ref(decision));
         const char *frame=frameName?frameName(action):nullptr;
@@ -113,13 +113,13 @@ class WebBoundary : public QObject {
         if(script){remove(content,script);unref(script);script=nullptr;}
         QByteArray source="(function(){'use strict';const nativePrompt=window.prompt.bind(window);const interfaces=";
         source+=QJsonDocument(interfaces).toJson(QJsonDocument::Compact);
-        source+=";Object.keys(interfaces).forEach(function(name){const object={};interfaces[name].forEach(function(method){object[method]=function(){const raw=nativePrompt('__SAILDROID_NATIVE_BRIDGE_V1__',JSON.stringify({name:name,method:method,args:Array.prototype.slice.call(arguments)}));if(raw===null)throw new Error('Native bridge cancelled');const result=JSON.parse(raw);if(!result.ok)throw new Error(result.error||'Native bridge failed');return result.undefined?undefined:result.value;};});Object.defineProperty(window,name,{value:Object.freeze(object),configurable:true});});})();";
+        source+=";Object.keys(interfaces).forEach(function(name){const object={};interfaces[name].forEach(function(method){object[method]=function(){const raw=nativePrompt('__SAILDROID_NATIVE_BRIDGE_V1__',JSON.stringify({name:name,method:method,args:Array.prototype.slice.call(arguments)}));if(raw===null)throw new Error('Native bridge cancelled');const result=JSON.parse(raw);if(!result.ok)throw new Error(result.error||'Native bridge failed');return result.undefined?undefined:result.value;};});Object.defineProperty(window,name,{value:object,writable:true,configurable:true});});})();";
         script=create(source.constData(),0,0,nullptr,nullptr);if(script)add(content,script);
     }
     void drainCookies(){
         if(cookieWrites)return;
         snapshot();
-        if(!delayedLoad.isEmpty()){QJsonObject next=delayedLoad;delayedLoad=QJsonObject();programmatic=next.value("url").toString();if(!command(next))load(next);}
+        if(!delayedLoad.isEmpty()){QJsonObject next=delayedLoad;delayedLoad=QJsonObject();if(!command(next))load(next);}
     }
     void cookieFinished(void *result,bool replacing){
         auto finish=SdWebApi::web<int(*)(void*,void*,void**)>(replacing?"webkit_cookie_manager_replace_cookies_finish":"webkit_cookie_manager_add_cookie_finish");
@@ -254,7 +254,9 @@ public:
         if(op=="cookies_clear"){cookieVersion=qMax(cookieVersion,qint64(object.value("version").toDouble()));clearCookies(object.value("sessions").toBool());return true;}
         if(op=="load"||op=="post"){
             if(cookieWrites){delayedLoad=object;return true;}
-            programmatic=object.value("url").toString();
+            programmatic = object.contains("html")
+                ? object.value("base").toString("about:blank")
+                : object.value("url").toString();
             if(op=="load"&&!object.value("headers").toObject().isEmpty()){
                 auto requestNew=SdWebApi::web<void*(*)(const char*)>("webkit_uri_request_new");
                 auto headers=SdWebApi::web<void*(*)(void*)>("webkit_uri_request_get_http_headers");

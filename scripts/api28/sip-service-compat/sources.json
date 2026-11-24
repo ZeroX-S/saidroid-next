@@ -1,0 +1,51 @@
+{
+  "upstream_repository": "platform/frameworks/opt/net/voip",
+  "upstream_revision": "android-9.0.0_r61",
+  "framework_overlays": {
+    "source/android/net/rtp/AudioCodec.java": {
+      "upstream_path": "java/android/net/rtp/AudioCodec.java",
+      "upstream_sha256": "849b3bf0ac8d9d69774b4108661f2378f0be3cf2615359845b67653b6be8bd9f"
+    },
+    "source/android/net/sip/SipAudioCall.java": {
+      "upstream_path": "java/android/net/sip/SipAudioCall.java",
+      "upstream_sha256": "a922206f831631f708c1937c43623a43d9179e3a828952ff2ab7fe2c1be80230"
+    }
+  },
+  "files": {
+    "scripts/device/sip/SdSipSessionGroup.java": {
+      "upstream_path": "src/java/com/android/server/sip/SipSessionGroup.java",
+      "upstream_sha256": "d7eb041cbc5710449c7530ef4f050d17cea1068f572a377905c984368cabe7c2"
+    },
+    "scripts/device/sip/SdSipHelper.java": {
+      "upstream_path": "src/java/com/android/server/sip/SipHelper.java",
+      "upstream_sha256": "708032dfbc73611147cf0915a1cbf0b195b02d2562185e2131951c66c1f036aa"
+    },
+    "native/rtp/AudioCodec.h": {
+      "upstream_path": "src/jni/rtp/AudioCodec.h",
+      "upstream_sha256": "b83c92a51ece1b23d5acf19440aae73d94f84fa750a68605a94d2a84e4999344"
+    },
+    "native/rtp/G711Codec.cpp": {
+      "upstream_path": "src/jni/rtp/G711Codec.cpp",
+      "upstream_sha256": "eb34049c952a07dff94777ec9943c4553bf6d930ee05a8baf7cbf648d239234d"
+    },
+    "native/rtp/EchoSuppressor.cpp": {
+      "upstream_path": "src/jni/rtp/EchoSuppressor.cpp",
+      "upstream_sha256": "cfc8e9afc74cc3bcebe8d1744be7605958cfec29cfacb2559a4133fbb7bb6e2a"
+    },
+    "native/rtp/EchoSuppressor.h": {
+      "upstream_path": "src/jni/rtp/EchoSuppressor.h",
+      "upstream_sha256": "ec70dbeccfcdd8e5e35aeb8f8715c7ad3def81d54983217d804948c73f50ac64"
+    },
+    "native/rtp/rtp-stream.inc": {
+      "upstream_path": "src/jni/rtp/AudioGroup.cpp",
+      "upstream_sha256": "6e0919cccb9d38099016c896044744c816598e18898e032f3386ef04b9b125ac"
+    }
+  },
+  "adaptations": [
+    "APK-owned Binder service",
+    "ordered cancellable scheduling",
+    "PulseAudio call media",
+    "G.711 PCMU and PCMA codec inventory",
+    "Host-owned WLAN power policy for SipAudioCall"
+  ]
+}

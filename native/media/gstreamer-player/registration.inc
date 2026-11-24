@@ -12,6 +12,8 @@ static void unsupported_45(JNIEnv*e,jobject,...){unsupported(e,"_releaseDrm()V")
 static jboolean unsupported_46(JNIEnv*e,jobject,...){unsupported(e,"native_setOutputDevice(I)Z");return 0;}
 static jint unsupported_47(JNIEnv*e,jobject,...){unsupported(e,"native_getRoutedDeviceId()I");return 0;}
 static void unsupported_48(JNIEnv*e,jobject,...){unsupported(e,"native_enableDeviceCallback(Z)V");}
+static jobject get_buffering_params(JNIEnv*e,jobject){unsupported(e,"getBufferingParams()Landroid/media/BufferingParams;");return nullptr;}
+static void set_buffering_params(JNIEnv*e,jobject,jobject){unsupported(e,"setBufferingParams(Landroid/media/BufferingParams;)V");}
 static JNINativeMethod methods[]={
  {const_cast<char*>("nativeSetDataSource"),const_cast<char*>("(Landroid/os/IBinder;Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)V"),(void*)source_uri},
  {const_cast<char*>("_setDataSource"),const_cast<char*>("(Ljava/io/FileDescriptor;JJ)V"),(void*)source_fd},
@@ -34,6 +36,8 @@ static JNINativeMethod methods[]={
  {const_cast<char*>("isPlaying"),const_cast<char*>("()Z"),(void*)isplaying},
  {const_cast<char*>("getCurrentPosition"),const_cast<char*>("()I"),(void*)position},
  {const_cast<char*>("getDuration"),const_cast<char*>("()I"),(void*)duration},
+ {const_cast<char*>("getBufferingParams"),const_cast<char*>("()Landroid/media/BufferingParams;"),(void*)get_buffering_params},
+ {const_cast<char*>("setBufferingParams"),const_cast<char*>("(Landroid/media/BufferingParams;)V"),(void*)set_buffering_params},
  {const_cast<char*>("_release"),const_cast<char*>("()V"),(void*)release},
  {const_cast<char*>("_reset"),const_cast<char*>("()V"),(void*)reset},
  {const_cast<char*>("_setAudioStreamType"),const_cast<char*>("(I)V"),(void*)stream},

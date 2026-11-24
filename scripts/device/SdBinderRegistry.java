@@ -18,7 +18,7 @@ public final class SdBinderRegistry extends ServiceManagerNative {
         }
         return super.onTransact(code,data,reply,flags);
     }
-    private static boolean privateName(String name){return name!=null&&(name.startsWith("saidroid.process.")||name.startsWith("saidroid.provider."));}
+    private static boolean privateName(String name){return name!=null&&(name.startsWith("saidroid.process.")||name.startsWith("saidroid.provider.")||name.startsWith("saidroid.sip."));}
     private void check(String name){if(Binder.getCallingUid()!=android.os.Process.myUid()||!privateName(name))throw new SecurityException("Private service identity differs");}
     @Override public synchronized IBinder getService(String name){if(Binder.getCallingUid()!=android.os.Process.myUid())throw new SecurityException("Private service UID differs");return privateName(name)||"sensorservice".equals(name)?entries.get(name):null;}
     @Override public IBinder checkService(String name){return getService(name);}

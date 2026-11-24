@@ -47,10 +47,16 @@ for name,target in record['symlinks'].items():assert (root/name).is_symlink()and
 releases=base/'releases';assert not releases.is_symlink();releases.mkdir(mode=0o755,exist_ok=True)
 release=releases/('api29-'+CONFIG['run']);assert not release.exists();root.rename(release)
 (release/'install-manifest.json').write_text(json.dumps(record,indent=2)+'\n')
-native_host=json.loads((release/'runtime.json').read_text()).get('native_host',False)
+runtime=json.loads((release/'runtime.json').read_text())
+native_host=runtime.get('native_host',False)
 cap_entry=release/('libexec/saildroid-app'if native_host else'libexec/saildroid-launch')
-subprocess.run(['setcap','cap_sys_resource=ep',str(cap_entry)],check=True)
-cap=subprocess.check_output(['getcap',str(cap_entry)],text=True).strip();assert 'cap_sys_resource=ep'in cap
+policy=runtime.get('native_bootstrap')
+capability='cap_sys_resource=ep'
+if policy is not None:
+ assert native_host and policy in [dict(schema='saildroid-native-bootstrap-v1',capabilities=value)for value in ['cap_sys_resource=ep','cap_dac_override,cap_sys_resource=ep']]
+ capability=policy['capabilities']
+subprocess.run(['setcap',capability,str(cap_entry)],check=True)
+cap=subprocess.check_output(['getcap',str(cap_entry)],text=True).strip();assert cap==str(cap_entry)+' '+capability
 # Ordinary user storage and its actual session runtime directory.
 for directory in [base/'apps',base/'data/shared',base/'data/logs',base/'data/manager']:
  assert not directory.is_symlink();directory.mkdir(mode=0o700,parents=True,exist_ok=True);os.chown(directory,account.pw_uid,account.pw_gid)

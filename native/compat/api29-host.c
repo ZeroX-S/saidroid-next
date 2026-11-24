@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <limits.h>
 #include <stddef.h>
+#include <malloc.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,6 +61,22 @@ int AndroidBitmap_unlockPixels(JNIEnv *env,jobject bitmap){
 /* Android 10 libc ABI extensions for a glibc-owned process. This library does
  * not replace either allocator or claim Android heap-inspection support. */
 extern char *program_invocation_name;
+
+/* Bionic LP64 mallinfo has ten size_t fields. glibc's legacy mallinfo uses
+ * ten int fields, while mallinfo2 has the matching wide return ABI. Include
+ * mmap-backed allocations in Android's total and allocated heap getters. */
+struct mallinfo2 bionic_mallinfo(void) {
+    _Static_assert(sizeof(size_t)==8, "Bionic LP64 mallinfo required");
+    _Static_assert(sizeof(struct mallinfo2)==10*sizeof(size_t), "mallinfo2 ABI differs");
+    _Static_assert(offsetof(struct mallinfo2,usmblks)==5*sizeof(size_t), "mallinfo total offset differs");
+    _Static_assert(offsetof(struct mallinfo2,uordblks)==7*sizeof(size_t), "mallinfo allocated offset differs");
+    _Static_assert(offsetof(struct mallinfo2,fordblks)==8*sizeof(size_t), "mallinfo free offset differs");
+    struct mallinfo2 info=mallinfo2();
+    info.usmblks=info.arena+info.hblkhd;
+    info.uordblks+=info.hblkhd;
+    return info;
+}
+
 const char *bionic_getprogname(void) {
     // ART changes argv[0] to Android's process name. glibc's cached short-name
     // pointer can then point beyond the new string, especially for private ART

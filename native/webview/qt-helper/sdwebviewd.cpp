@@ -38,6 +38,10 @@ static void logMessage(QtMsgType, const QMessageLogContext &, const QString &mes
 #include "webkit-boundary.h"
 #include "webkit-ime.h"
 
+static constexpr int maxFrameBytes = 2160 * 4096 * 4;
+static constexpr int maxQueuedBytes = maxFrameBytes + 15 * 1024 * 1024;
+static constexpr int maxCommandBytes = 16 * 1024 * 1024 - 4;
+
 class WebHost : public QObject {
     Q_OBJECT
     QQuickRenderControl control;
@@ -65,7 +69,7 @@ class WebHost : public QObject {
         char header[4] = { char(length >> 24), char(length >> 16), char(length >> 8), char(length) };
         outgoing.append(header, 4); outgoing.append(json); outgoing.append(payload);
         // At most one frame is outstanding; control events also have a hard cap.
-        if (outgoing.size() > 24 * 1024 * 1024) { qCritical("SDWEBHOST=output_overflow"); QCoreApplication::exit(11); return; }
+        if (outgoing.size() > maxQueuedBytes) { qCritical("SDWEBHOST=output_overflow"); QCoreApplication::exit(11); return; }
         flush();
     }
     void flush() {
@@ -96,7 +100,7 @@ class WebHost : public QObject {
         }
         if (op == "resize") {
             const int w = object.value("width").toInt(), h = object.value("height").toInt();
-            if (w < 1 || h < 1 || w > 2160 || h > 4096 || qint64(w) * h > 9 * 1024 * 1024 / 4) {
+            if (w < 1 || h < 1 || w > 2160 || h > 4096 || qint64(w) * h * 4 > maxFrameBytes) {
                 packet(QJsonObject{{"event","error"},{"message","invalid viewport"}}); return;
             }
             if (w != width || h != height) {
@@ -218,19 +222,23 @@ class WebHost : public QObject {
             else if (errno == EINTR) continue;
             else if (errno == EAGAIN || errno == EWOULDBLOCK) break;
             else { QCoreApplication::exit(13); return; }
-            if (incoming.size() > 4 * 1024 * 1024) { QCoreApplication::exit(14); return; }
-        }
-        for (;;) {
-            if (incoming.size() < 4) return;
-            const auto *p = reinterpret_cast<const unsigned char *>(incoming.constData());
-            quint32 length = (quint32(p[0]) << 24) | (quint32(p[1]) << 16) | (quint32(p[2]) << 8) | p[3];
-            if (length == 0 || length > 4 * 1024 * 1024 - 4) { QCoreApplication::exit(15); return; }
-            if (incoming.size() < int(length)+4) return;
-            QJsonParseError error;
-            const auto doc = QJsonDocument::fromJson(incoming.mid(4,int(length)),&error);
-            incoming.remove(0,int(length)+4);
-            if (error.error != QJsonParseError::NoError || !doc.isObject()) { QCoreApplication::exit(16); return; }
-            dispatch(doc.object());
+            // Consume complete packets before another read. The byte limit
+            // applies to each command even when several arrive together.
+            for (;;) {
+                if (incoming.size() < 4) break;
+                const auto *p = reinterpret_cast<const unsigned char *>(incoming.constData());
+                quint32 length = (quint32(p[0]) << 24) | (quint32(p[1]) << 16) | (quint32(p[2]) << 8) | p[3];
+                if (length == 0 || length > maxCommandBytes) {
+                    qCritical("SDWEBHOST=invalid_command_length|bytes=%u|max=%d", length, maxCommandBytes);
+                    QCoreApplication::exit(15); return;
+                }
+                if (incoming.size() < int(length)+4) break;
+                QJsonParseError error;
+                const auto doc = QJsonDocument::fromJson(incoming.mid(4,int(length)),&error);
+                incoming.remove(0,int(length)+4);
+                if (error.error != QJsonParseError::NoError || !doc.isObject()) { QCoreApplication::exit(16); return; }
+                dispatch(doc.object());
+            }
         }
     }
     void schedule() {
@@ -323,7 +331,7 @@ int main(int argc,char **argv) {
     QGuiApplication app(argc,argv);
     if (argc != 4) return 2;
     bool okW=false,okH=false;int w=QString::fromLocal8Bit(argv[2]).toInt(&okW),h=QString::fromLocal8Bit(argv[3]).toInt(&okH);
-    if (!okW||!okH||w<1||h<1||w>2160||h>4096||qint64(w)*h>9*1024*1024/4) return 2;
+    if (!okW||!okH||w<1||h<1||w>2160||h>4096||qint64(w)*h*4>maxFrameBytes) return 2;
     WebHost host(w,h);
     if (!host.start(QString::fromLocal8Bit(argv[1]))) return 3;
     return app.exec();

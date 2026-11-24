@@ -11,7 +11,8 @@ import java.util.concurrent.TimeUnit;
 /** One isolated Qt/WPE host per WebView. The UI thread never waits for IPC. */
 public final class SdWebEngine {
     public static final int MAX_HOST_WIDTH=2160,MAX_HOST_HEIGHT=4096;
-    public static final int MAX_FRAME_BYTES=9*1024*1024;
+    public static final int MAX_FRAME_BYTES=MAX_HOST_WIDTH*MAX_HOST_HEIGHT*4;
+    private static final int MAX_COMMAND_BYTES=16*1024*1024-4;
 
     /** Match the native host's dimensions AND byte budget without distorting pages. */
     public static int[] hostSize(int requestedWidth, int requestedHeight) {
@@ -76,9 +77,10 @@ public final class SdWebEngine {
                 try(DataOutputStream out=new DataOutputStream(child.getOutputStream())){
                     while(!closed){JSONObject command=commands.poll(1,TimeUnit.SECONDS);if(command==null)continue;
                         byte[] encoded=command.toString().getBytes("UTF-8");
-                        if(encoded.length>4*1024*1024-4)throw new IOException("command too large");
+                        if(encoded.length>MAX_COMMAND_BYTES)throw new IOException(
+                            "command too large: "+encoded.length+" bytes (limit "+MAX_COMMAND_BYTES+")");
                         out.writeInt(encoded.length);out.write(encoded);out.flush();}
-                }catch(Exception failure){if(!closed)fail("write:"+failure.getClass().getSimpleName());}
+                }catch(Exception failure){if(!closed)fail("write:"+failure.getClass().getSimpleName()+":"+failure.getMessage());}
             }},"sd-webview-writer");writer.setDaemon(true);writer.start();
             try(DataInputStream input=new DataInputStream(new BufferedInputStream(child.getInputStream(),65536))){
                 while(!closed){

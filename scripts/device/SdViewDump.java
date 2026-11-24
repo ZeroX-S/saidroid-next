@@ -9,7 +9,7 @@ import android.view.ViewGroup;
  * visibility and whether getLayoutParams() returned null, so the failing child and its
  * parent chain appear in the application log before the process exits.
  *
- * Prints on the uncaught-exception path only; it never runs while the application works. */
+ * Also available through the authenticated host diagnostic request. */
 public final class SdViewDump {
     private static final int MAX_DEPTH=64,MAX_VIEWS=800;
 
@@ -106,9 +106,11 @@ public final class SdViewDump {
             Object layoutParams=view.getLayoutParams();
             params=layoutParams==null?"null":layoutParams.getClass().getName();
         }catch(Throwable failure){params="error:"+failure.getClass().getSimpleName();}
+        int[] location=new int[2];view.getLocationOnScreen(location);
         out.append("SDVIEWS=view|d=").append(depth).append("|class=").append(view.getClass().getName())
             .append("|id=").append(describeId(view))
             .append("|vis=").append(view.getVisibility())
+            .append("|screen=").append(location[0]).append(',').append(location[1])
             .append("|layout=").append(view.getWidth()).append('x').append(view.getHeight())
             .append("|measured=").append(view.getMeasuredWidth()).append('x').append(view.getMeasuredHeight())
             .append("|params=").append(params);
