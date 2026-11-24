@@ -1,5 +1,7 @@
 /* Test-only process client; never packaged into the phone component. */
 #include "../host-common.hpp"
+#include <condition_variable>
+#include <mutex>
 int sd_manager_main(const fs::path &);
 int main(int argc, char **argv) {
   try {
@@ -12,6 +14,34 @@ int main(int argc, char **argv) {
     auto bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &error);
     if (!bus)
       throw std::runtime_error("No test bus");
+    struct SignalTracker {
+      std::mutex m;
+      std::condition_variable cv;
+      uint64_t count = 0;
+    } tracker;
+    g_dbus_connection_add_filter(
+        bus,
+        +[](GDBusConnection *, GDBusMessage *msg, gboolean incoming,
+            gpointer data) -> GDBusMessage * {
+          if (incoming &&
+              g_dbus_message_get_message_type(msg) ==
+                  G_DBUS_MESSAGE_TYPE_SIGNAL &&
+              g_strcmp0(g_dbus_message_get_interface(msg), IFACE) == 0 &&
+              g_strcmp0(g_dbus_message_get_member(msg), "StateChanged") == 0) {
+            auto *t = static_cast<SignalTracker *>(data);
+            std::lock_guard<std::mutex> lock(t->m);
+            ++t->count;
+            t->cv.notify_all();
+          }
+          return msg;
+        },
+        &tracker, nullptr);
+    if (auto mr = g_dbus_connection_call_sync(
+            bus, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+            "org.freedesktop.DBus", "AddMatch",
+            g_variant_new("(s)", "type='signal',interface='org.saildroid.HostManager1',member='StateChanged',path='/org/saildroid/HostManager'"),
+            nullptr, G_DBUS_CALL_FLAGS_NONE, 1000, nullptr, nullptr))
+      g_variant_unref(mr);
     std::string key = argv[1], role = argc > 2 ? argv[2] : "activity",
                 owner = argc > 3 ? argv[3] : "";
     std::string package = role == "service" ? "org.example.a" : key;
@@ -42,6 +72,21 @@ int main(int argc, char **argv) {
         in >> method >> arg;
         if (method == "exit")
           return 0;
+        if (method == "SignalCount") {
+          std::lock_guard<std::mutex> lock(tracker.m);
+          std::cout << Json{{"signals", tracker.count}}.dump() << std::endl;
+          continue;
+        }
+        if (method == "WaitSignal") {
+          uint64_t baseline = std::stoull(arg);
+          std::unique_lock<std::mutex> lock(tracker.m);
+          bool woke = tracker.cv.wait_for(
+              lock, std::chrono::milliseconds(1500),
+              [&] { return tracker.count > baseline; });
+          std::cout << Json{{"woke", woke}, {"signals", tracker.count}}.dump()
+                    << std::endl;
+          continue;
+        }
         if (method == "SpawnHelper") {
           pid_t child = fork();
           if (child < 0)

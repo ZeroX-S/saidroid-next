@@ -24,7 +24,7 @@ static pthread_mutex_t bitmap_lock_mutex=PTHREAD_MUTEX_INITIALIZER;
 static struct bitmap_lock *bitmap_locks;
 static jmethodID bm_width,bm_height,bm_stride,bm_config,bm_copy_to,bm_copy_from;
 static jmethodID cfg_text;
-static jclass bm_class,cfg_class;
+static jclass bm_class;
 static int bitmap_methods(JNIEnv *env,jobject bitmap){
     if(bm_width)return 1;
     jclass local=(*env)->GetObjectClass(env,bitmap);if(!local)return 0;

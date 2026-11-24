@@ -1259,12 +1259,17 @@ static jobject unsupported_egl_window(JNIEnv *e,jclass type,jobject display,jobj
 JNIEXPORT void JNICALL Java_SdWindowHost_nativeInstall(JNIEnv *e, jclass c) {
     host_class = (*e)->NewGlobalRef(e, c);
     diagnostics_class = (*e)->NewGlobalRef(e, (*e)->FindClass(e, "SdRuntimeDiagnostics"));
+    if (!diagnostics_class || (*e)->ExceptionCheck(e)) return;
     dump_method = (*e)->GetStaticMethodID(e, diagnostics_class, "dumpThreads", "()V");
+    if ((*e)->ExceptionCheck(e)) return;
     frame_class = (*e)->NewGlobalRef(e, (*e)->FindClass(e, "SdDisplayFrames"));
+    if (!frame_class || (*e)->ExceptionCheck(e)) return;
     display_init_method = (*e)->GetStaticMethodID(e, frame_class, "initialize", "(Ljava/lang/ref/WeakReference;Landroid/os/MessageQueue;)J");
     display_dispose_method = (*e)->GetStaticMethodID(e, frame_class, "dispose", "(J)V");
     display_schedule_method = (*e)->GetStaticMethodID(e, frame_class, "schedule", "(J)V");
+    if ((*e)->ExceptionCheck(e)) return;
     surface_class = (*e)->NewGlobalRef(e, (*e)->FindClass(e, "SdSurfaceStore"));
+    if (!surface_class || (*e)->ExceptionCheck(e)) return;
     surface_lock_method = (*e)->GetStaticMethodID(e, surface_class, "lock", "(JLandroid/graphics/Canvas;Landroid/graphics/Rect;)J");
     surface_unlock_method = (*e)->GetStaticMethodID(e, surface_class, "unlock", "(JLandroid/graphics/Canvas;)V");
     surface_release_method = (*e)->GetStaticMethodID(e, surface_class, "release", "(J)V");
@@ -1273,6 +1278,7 @@ JNIEXPORT void JNICALL Java_SdWindowHost_nativeInstall(JNIEnv *e, jclass c) {
     surface_width_method = (*e)->GetStaticMethodID(e, surface_class, "width", "(J)I");
     surface_height_method = (*e)->GetStaticMethodID(e, surface_class, "height", "(J)I");
     surface_allocate_method = (*e)->GetStaticMethodID(e, surface_class, "allocate", "(J)V");
+    if ((*e)->ExceptionCheck(e)) return;
     perf_compose_field = (*e)->GetStaticFieldID(e, surface_class, "composes", "J");
     perf_erase_field = (*e)->GetStaticFieldID(e, surface_class, "composeEraseNs", "J");
     perf_draw_field = (*e)->GetStaticFieldID(e, surface_class, "composeDrawNs", "J");
@@ -1304,7 +1310,8 @@ JNIEXPORT void JNICALL Java_SdWindowHost_nativeInstall(JNIEnv *e, jclass c) {
         {"nativeDispose", "(J)V", display_dispose},
         {"nativeScheduleVsync", "(J)V", display_schedule},
     };
-    if ((*e)->RegisterNatives(e, (*e)->FindClass(e, "android/view/DisplayEventReceiver"), dm, 3) < 0) return;
+    jclass der_cls = (*e)->FindClass(e, "android/view/DisplayEventReceiver");
+    if (!der_cls || (*e)->RegisterNatives(e, der_cls, dm, 3) < 0) return;
     JNINativeMethod sm[] = {
         {"nativeLockCanvas", "(JLandroid/graphics/Canvas;Landroid/graphics/Rect;)J", surface_lock},
         {"nativeUnlockCanvasAndPost", "(JLandroid/graphics/Canvas;)V", surface_unlock},
@@ -1319,12 +1326,14 @@ JNIEXPORT void JNICALL Java_SdWindowHost_nativeInstall(JNIEnv *e, jclass c) {
         {"nativeReadFromParcel", "(JLandroid/os/Parcel;)J", unsupported_read},
         {"nativeWriteToParcel", "(JLandroid/os/Parcel;)V", unsupported_write},
     };
-    if ((*e)->RegisterNatives(e, (*e)->FindClass(e, "android/view/Surface"), sm, sizeof(sm) / sizeof(sm[0])) < 0) return;
+    jclass surf_cls = (*e)->FindClass(e, "android/view/Surface");
+    if (!surf_cls || (*e)->RegisterNatives(e, surf_cls, sm, sizeof(sm) / sizeof(sm[0])) < 0) return;
     JNINativeMethod ew[] = {
         {"_eglCreateWindowSurface", "(Landroid/opengl/EGLDisplay;Landroid/opengl/EGLConfig;Ljava/lang/Object;[II)Landroid/opengl/EGLSurface;", unsupported_egl_window},
         {"_eglCreateWindowSurfaceTexture", "(Landroid/opengl/EGLDisplay;Landroid/opengl/EGLConfig;Ljava/lang/Object;[II)Landroid/opengl/EGLSurface;", unsupported_egl_window},
     };
-    if ((*e)->RegisterNatives(e, (*e)->FindClass(e, "android/opengl/EGL14"), ew, 2) < 0) return;
+    jclass egl_cls = (*e)->FindClass(e, "android/opengl/EGL14");
+    if (!egl_cls || (*e)->RegisterNatives(e, egl_cls, ew, 2) < 0) return;
     sd_control_install(e);
 }
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM*v,void*r){(void)r;vm=v;return JNI_VERSION_1_6;}

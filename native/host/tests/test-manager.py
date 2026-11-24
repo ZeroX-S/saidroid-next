@@ -82,9 +82,16 @@ try:
  assert request(c,'GetState org.example.forged')['reply']=="('{\"running\":false}',)"
  assert unrelated.poll() is None,'unrelated executable was signalled'
  forged.unlink();unrelated.terminate();unrelated.wait(timeout=3)
+ base_sig=request(c,'SignalCount')['signals']
  assert request(c,'SetState org.example.c art-running')['reply']=='()'
+ woke1=request(c,f'WaitSignal {base_sig}')
+ assert woke1['woke'] and woke1['signals']>base_sig,'StateChanged signal did not wake client on SetState'
+ base_sig2=woke1['signals']
  assert request(c,'TryAcquireHeavy')['reply']=='(true,)'
- print('NATIVE_MANAGER=PASS|cases=dedup,concurrent-apps,fair-admission,lease-auth,stale-close,install-lock,service-generation,owner-cleanup,immediate-relaunch-cleanup,helper-group-cleanup,unrelated-survival,relaunch,dead-admission-release,manager-readoption,forged-executable-rejected')
+ assert request(c,'ReleaseHeavy')['reply']=='()'
+ woke2=request(c,f'WaitSignal {base_sig2}')
+ assert woke2['woke'] and woke2['signals']>base_sig2,'StateChanged signal did not wake client on ReleaseHeavy'
+ print('NATIVE_MANAGER=PASS|cases=dedup,concurrent-apps,fair-admission,lease-auth,stale-close,install-lock,service-generation,owner-cleanup,immediate-relaunch-cleanup,helper-group-cleanup,unrelated-survival,relaunch,dead-admission-release,manager-readoption,forged-executable-rejected,state-changed-signal')
 finally:
  for p in children:
   try:stop(p)

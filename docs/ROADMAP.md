@@ -46,23 +46,22 @@ SailDroid 采用**独立 ART + Bionic 符号转译 + 进程内伪系统服务 + 
 
 ## 四、分阶段演进路线
 
-### 阶段 P0：工程消债与热路径止血（进行中）
+### 阶段 P0：工程消债与热路径止血（已完成）
 
 - [x] 将散落在历史兼容实验目录中的活跃生产源码（`SdPendingIntents`、`SdManifestReceivers`、`audio-connection.hpp`）迁回标准目录。
 - [x] 清理 700+ 个无引用的历史一次性调试脚本与 `baseline` 快照副本；将活跃源码路径从 `api29` 中性化为 `scripts/runtime/` 与 `native/compat/runtime-*`（保留设备端 `/home/art/api29-root` 与 `libsdhost29.so` 运行时兼容契约）。
-- [x] 展开 [`sdwindow.c`](../native/window/sdwindow.c) 超长单行代码；全量缓存窗口/音频 JNI `jmethodID` 与 Direct `ByteBuffer` 引用；缓存 [`host-manager.cpp`](../native/host/host-manager.cpp) D-Bus 调用方凭据；复用 [`SdWindowSession.java`](../scripts/device/SdWindowSession.java) 窗口序与触控事件数组并缓存 [`SdApkPackage.java`](../scripts/device/SdApkPackage.java) 权限表。
-- [x] 建立统一回归测试入口 [`tools/run-tests.py`](../tools/run-tests.py) 与 GitHub Actions 自动预检门禁。
+- [x] 展开 [`sdwindow.c`](../native/window/sdwindow.c) 超长单行代码；全量缓存窗口/音频 JNI `jmethodID` 与 Direct `ByteBuffer` 引用；缓存 [`host-manager.cpp`](../native/host/host-manager.cpp) D-Bus 调用方凭据；复用 [`SdWindowSession.java`](../scripts/device/SdWindowSession.java) 窗口序与触控事件数组、惰性初始化 [`SdSurfaceStore.java`](../scripts/device/SdSurfaceStore.java) 合成画笔并缓存 [`SdApkPackage.java`](../scripts/device/SdApkPackage.java) 权限表。
+- [x] 建立统一回归测试入口 [`tools/run-tests.py`](../tools/run-tests.py)（含隔离 D-Bus / PulseAudio / Weston Wayland 实装守护进程、`fakeroot` 打包属性夹具与 `qemu-aarch64-static` 跨架构验证）及 GitHub Actions 自动预检门禁。
 
-### 阶段 P1：零拷贝媒体/WebView 管线与全面事件驱动
+### 阶段 P1：零拷贝媒体/WebView 管线与全面事件驱动（核心落地，持续演进）
 
-- [ ] **WebView 零拷贝改造**：
-  - 第一步（P1a）：使用 `memfd` 共享内存双/三缓冲 + Unix Socket `SCM_RIGHTS` 替代 `stdout` 管道传帧，支持同进程多 `WebView` 共享单个 `sdwebviewd` 宿主。
-  - 第二步（P1b）：打通 `wpebackend-fdo` `EGLImage` / `zwp_linux_dmabuf_v1` 导入 Android `SurfaceTexture` 或挂载 `wl_subsurface`，彻底消除 `glReadPixels` CPU 回读，实现 60fps 滚动。
-- [ ] **后台轮询全面转事件订阅**：
-  - [`host-audio.cpp`](../native/host/host-audio.cpp) 改为进程内长连接 `pa_threaded_mainloop` + `pa_context_subscribe` 内存快照。
-  - [`host-manager.cpp`](../native/host/host-manager.cpp) 采用 `pidfd_open` / cgroup 替代 250ms 定时器与 `/proc` 全盘扫描；[`host-entry.cpp`](../native/host/host-entry.cpp) 与 [`SdProcessStartup.java`](../scripts/device/SdProcessStartup.java) 改为信号/事件唤醒并放宽子进程并发度。
-  - `SdTimeZone` 改用 `inotify`，`SdThermal` 改为按监听器与前台状态按需采样。
-- [ ] **相机预览加速**：`memfd` 环形帧池 + GLES YUV 着色器（或 `libyuv` NEON）替代标量 CPU 转换旋转。
+- [x] **WebView P1a 共享内存双缓冲零管道传帧**：[`sdwebviewd.cpp`](../native/webview/qt-helper/sdwebviewd.cpp) 与 [`SdWebEngine.java`](../scripts/device/SdWebEngine.java) 改用 `0600` 共享内存双缓冲映射（`shm_rgba8888`）替代 `stdout` 管道传输 9~33 MB RGBA 像素，保留 `rgba8888` 自动回退能力。
+- [ ] **WebView P1b GPU 零回读合成**：打通 `wpebackend-fdo` `EGLImage` / `zwp_linux_dmabuf_v1` 导入 Android `SurfaceTexture` 或挂载 `wl_subsurface`，彻底消除 `glReadPixels` CPU 回读并支持多实例共享网络进程。
+- [x] **PulseAudio 长连接事件订阅与零轮询路由监控**：[`host-audio.cpp`](../native/host/host-audio.cpp) + [`SdAudio.java`](../scripts/device/SdAudio.java) 改为常驻 `pa_mainloop` + `pa_context_subscribe` 内存快照与 `awaitAudioRouteChange` 条件变量唤醒，消除每查询重连与 Java 端 2s 轮询。
+- [x] **`HostManager1` 状态信号实时唤醒与广播并发池**：[`host-manager.cpp`](../native/host/host-manager.cpp) 广播 `StateChanged` 信号，[`host-entry.cpp`](../native/host/host-entry.cpp) 通过 GDBus 工作线程过滤器实时唤醒启动等待；[`SdManifestReceivers.java`](../scripts/device/SdManifestReceivers.java) 引入按目标进程分组串行的有界并发接收器线程池。
+- [ ] **守护进程 `pidfd` 化与外围轮询收敛**：[`host-manager.cpp`](../native/host/host-manager.cpp) 采用 `pidfd_open` / cgroup 替代 250ms 定时器与 `/proc` 扫描；`SdThermal` 改为按监听器与前台状态按需采样。
+- [x] **Camera1 零分配缓冲复用与行指针外提**：[`camera-host.cpp`](../native/media/droid-camera/camera-host.cpp) 复用每客户端事件/RGBA 缓冲并在 `0°` 常见路径外提 Y/UV 行指针与无分支饱和裁剪。
+- [ ] **Camera1 P1b 硬件直通**：`memfd` 环形帧池 + GLES YUV 着色器（或 `libyuv` NEON）进一步卸载旋转转换。
 
 ### 阶段 P2：轻量系统守护进程、编译期服务 Stub 与类 Zygote 孵化
 

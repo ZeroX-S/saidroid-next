@@ -15,11 +15,12 @@
  * preserve the allocator's first failure even when ART's crash printer cannot
  * allocate. Android ELF mappings are symbolized offline from this same capture. */
 static atomic_flag printing=ATOMIC_FLAG_INIT;
-static void literal(const char *text){size_t size=0;while(text[size])size++;(void)write(2,text,size);}
+static void write_stderr(const void *buf,size_t size){ssize_t rc=write(2,buf,size);(void)rc;}
+static void literal(const char *text){size_t size=0;while(text[size])size++;write_stderr(text,size);}
 static void number(uintptr_t value){
     char hex[19]="0x0000000000000000";
     for(int i=0;i<16;i++)hex[17-i]="0123456789abcdef"[(value>>(i*4))&15];
-    (void)write(2,hex,18);
+    write_stderr(hex,18);
 }
 static void frames(const char *kind,uintptr_t pc,uintptr_t fp,uintptr_t sp){
     if(atomic_flag_test_and_set(&printing))return;
@@ -29,11 +30,12 @@ static void frames(const char *kind,uintptr_t pc,uintptr_t fp,uintptr_t sp){
         uintptr_t pair[2];struct iovec local={pair,sizeof(pair)},remote={(void*)fp,sizeof(pair)};
         if(syscall(SYS_process_vm_readv,getpid(),&local,1,&remote,1,0)!=(ssize_t)sizeof(pair))break;
         literal("SDNATIVE_FRAME=");number(pair[1]);literal("|fp=");number(fp);literal("\n");
-        if(pair[0]<=fp)break;fp=pair[0];
+        if(pair[0]<=fp)break;
+        fp=pair[0];
     }
     literal("SDNATIVE_MAPS=begin\n");
     int fd=open("/proc/self/maps",O_RDONLY|O_CLOEXEC);
-    if(fd>=0){char buffer[4096];ssize_t length;while((length=read(fd,buffer,sizeof(buffer)))>0)(void)write(2,buffer,(size_t)length);close(fd);}
+    if(fd>=0){char buffer[4096];ssize_t length;while((length=read(fd,buffer,sizeof(buffer)))>0)write_stderr(buffer,(size_t)length);close(fd);}
     literal("SDNATIVE_FAILURE=end\n");atomic_flag_clear(&printing);
 }
 static bool fatal_signal(int signal,siginfo_t *info,void *context){

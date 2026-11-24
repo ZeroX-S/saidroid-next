@@ -45,6 +45,44 @@ struct Client{
  int fd=-1;pid_t child=-1;std::thread reader;std::atomic<bool>quit{false},previewing{false},callback{false},manual{false};
  std::atomic<int>rotation{0};std::atomic<uint64_t>frames{0},callbacks{0};long id=0;bool mirror=false;jobject weak=nullptr;std::unique_ptr<GpuSurface>gpu;
  std::mutex request_mutex,reply_mutex,surface_mutex,buffer_mutex;std::condition_variable reply_ready;uint32_t sequence=0;std::map<uint32_t,Reply>replies;std::deque<jbyteArray>buffers;void*window=nullptr;void*notifications=nullptr;
+ std::vector<unsigned char>event_scratch,rgba_scratch;
+ static inline unsigned char clamp_u8(int v){return (v&~255)==0?(unsigned char)v:(v<0?0:255);}
+ static inline void write_nv21_pixel(unsigned char*dst,int yy,int u,int v){
+  int y_scaled=298*yy+128;
+  dst[0]=clamp_u8((y_scaled+409*v)>>8);
+  dst[1]=clamp_u8((y_scaled-100*u-208*v)>>8);
+  dst[2]=clamp_u8((y_scaled+516*u)>>8);
+  dst[3]=255;
+ }
+ static void convert_nv21_to_rgba(const unsigned char*src,int src_w,int src_h,unsigned char*dst_base,int dst_stride,int rows,int cols,int angle,bool mirrored){
+  const unsigned char*uv_plane=src+size_t(src_w)*src_h;
+  const int full_w=angle%180?src_h:src_w;
+  if(angle==0&&!mirrored){
+   for(int y=0;y<rows;y++){
+    const unsigned char*y_row=src+size_t(y)*src_w;
+    const unsigned char*uv_row=uv_plane+size_t(y>>1)*src_w;
+    unsigned char*dst=dst_base+size_t(y)*dst_stride*4;
+    for(int x=0;x<cols;x++,dst+=4){
+     int yy=int(y_row[x])-16;const unsigned char*uv=uv_row+(x&~1);
+     write_nv21_pixel(dst,yy,int(uv[1])-128,int(uv[0])-128);
+    }
+   }
+   return;
+  }
+  for(int y=0;y<rows;y++){
+   unsigned char*dst=dst_base+size_t(y)*dst_stride*4;
+   for(int x=0;x<cols;x++,dst+=4){
+    int dx=mirrored?full_w-1-x:x;
+    int sx=dx,sy=y;
+    if(angle==90){sx=y;sy=src_h-1-dx;}
+    else if(angle==180){sx=src_w-1-dx;sy=src_h-1-y;}
+    else if(angle==270){sx=src_w-1-y;sy=dx;}
+    int yy=int(src[size_t(sy)*src_w+sx])-16;
+    const unsigned char*uv=uv_plane+size_t(sy>>1)*src_w+(sx&~1);
+    write_nv21_pixel(dst,yy,int(uv[1])-128,int(uv[0])-128);
+   }
+  }
+ }
  bool exact(void*dst,size_t size){char*p=(char*)dst;while(size&&!quit){ssize_t n=recv(fd,p,size,0);if(n<0&&errno==EINTR)continue;if(n<0&&(errno==EAGAIN||errno==EWOULDBLOCK)){pollfd poller{fd,POLLIN,0};poll(&poller,1,100);continue;}if(n<=0)return false;p+=n;size-=n;}return !size;}
  bool write_all(const void*src,size_t size){const char*p=(const char*)src;while(size&&!quit){ssize_t n=send(fd,p,size,MSG_NOSIGNAL);if(n<0&&errno==EINTR)continue;if(n<=0)return false;p+=n;size-=n;}return !size;}
  bool spawn(){
@@ -79,22 +117,14 @@ struct Client{
   {std::lock_guard<std::mutex>g(surface_mutex);if(window&&!quit){
    int angle=rotation.load(),w=angle%180?h.b:h.a,height=angle%180?h.a:h.b;
    bool hardware=gpu_api().ready&&gpu_api().frames(window)>=0;
-   if(hardware){int rows=height,cols=w;std::vector<unsigned char>rgba(size_t(w)*height*4);WindowBuffer out{w,height,w,1,rgba.data(),{}};
-    for(int y=0;y<rows;y++)for(int x=0;x<cols;x++){
-     int display_x=mirror?w-1-x:x;int sx=display_x,sy=y;if(angle==90){sx=y;sy=h.b-1-display_x;}else if(angle==180){sx=h.a-1-display_x;sy=h.b-1-y;}else if(angle==270){sx=h.a-1-y;sy=display_x;}
-     int yy=int(data[size_t(sy)*h.a+sx])-16;size_t uv=size_t(h.a)*h.b+(sy/2)*h.a+(sx&~1);int v=int(data[uv])-128,u=int(data[uv+1])-128;
-     auto clamp=[](int value){return (unsigned char)std::max(0,std::min(255,value));};unsigned char*dst=(unsigned char*)out.bits+(size_t(y)*out.stride+x)*4;
-     dst[0]=clamp((298*yy+409*v+128)>>8);dst[1]=clamp((298*yy-100*u-208*v+128)>>8);dst[2]=clamp((298*yy+516*u+128)>>8);dst[3]=255;
-    }
-    if(!gpu||gpu->window!=window)gpu.reset(new GpuSurface(window));posted=gpu->pixels(rgba.data(),w,height);
+   if(hardware){
+    rgba_scratch.resize(size_t(w)*height*4);
+    convert_nv21_to_rgba(data.data(),h.a,h.b,rgba_scratch.data(),w,height,w,angle,mirror);
+     if(!gpu||gpu->window!=window)gpu.reset(new GpuSurface(window));
+     posted=gpu->pixels(rgba_scratch.data(),w,height);
    }else if(window_geometry(window,w,height,1)==0){WindowBuffer out{};if(window_lock(window,&out,nullptr)==0){
     int rows=std::min(height,out.height),cols=std::min(w,out.width);
-    for(int y=0;y<rows;y++)for(int x=0;x<cols;x++){
-     int display_x=mirror?w-1-x:x;int sx=display_x,sy=y;if(angle==90){sx=y;sy=h.b-1-display_x;}else if(angle==180){sx=h.a-1-display_x;sy=h.b-1-y;}else if(angle==270){sx=h.a-1-y;sy=display_x;}
-     int yy=int(data[size_t(sy)*h.a+sx])-16;size_t uv=size_t(h.a)*h.b+(sy/2)*h.a+(sx&~1);int v=int(data[uv])-128,u=int(data[uv+1])-128;
-     auto clamp=[](int value){return (unsigned char)std::max(0,std::min(255,value));};unsigned char*dst=(unsigned char*)out.bits+(size_t(y)*out.stride+x)*4;
-     dst[0]=clamp((298*yy+409*v+128)>>8);dst[1]=clamp((298*yy-100*u-208*v+128)>>8);dst[2]=clamp((298*yy+516*u+128)>>8);dst[3]=255;
-    }
+    convert_nv21_to_rgba(data.data(),h.a,h.b,(unsigned char*)out.bits,out.stride,rows,cols,angle,mirror);
     posted=window_post(window)==0;
    }}
   }}
@@ -114,9 +144,9 @@ struct Client{
   event(e,0x400,0,0,array);e->DeleteLocalRef(array);e->DeleteLocalRef(face);e->DeleteLocalRef(rect);e->DeleteLocalRef(point);
  }
  void loop(){
-  Env env;Header h;while(!quit&&exact(&h,sizeof(h))){if(h.magic!=magic||h.size>max_payload)break;std::vector<unsigned char>data(h.size);if(h.size&&!exact(data.data(),h.size))break;
-   if(h.type&response){std::lock_guard<std::mutex>guard(reply_mutex);replies[h.sequence]=Reply{h,std::move(data)};reply_ready.notify_all();}
-   else if((h.type&sd_camera::event)&&env.e){int type=h.type&~sd_camera::event;if(type==0x10)frame(env.e,h,data);else if(type==0x400)faces(env.e,data);else{jbyteArray array=nullptr;if(h.size){array=env.e->NewByteArray(data.size());if(array)env.e->SetByteArrayRegion(array,0,data.size(),(const jbyte*)data.data());}this->event(env.e,type,h.a,h.b,array);if(array)env.e->DeleteLocalRef(array);}}
+  Env env;Header h;while(!quit&&exact(&h,sizeof(h))){if(h.magic!=magic||h.size>max_payload)break;
+   if(h.type&response){std::vector<unsigned char>data(h.size);if(h.size&&!exact(data.data(),h.size))break;std::lock_guard<std::mutex>guard(reply_mutex);replies[h.sequence]=Reply{h,std::move(data)};reply_ready.notify_all();}
+   else{event_scratch.resize(h.size);if(h.size&&!exact(event_scratch.data(),h.size))break;if((h.type&sd_camera::event)&&env.e){int type=h.type&~sd_camera::event;if(type==0x10)frame(env.e,h,event_scratch);else if(type==0x400)faces(env.e,event_scratch);else{jbyteArray array=nullptr;if(h.size){array=env.e->NewByteArray(event_scratch.size());if(array)env.e->SetByteArrayRegion(array,0,event_scratch.size(),(const jbyte*)event_scratch.data());}this->event(env.e,type,h.a,h.b,array);if(array)env.e->DeleteLocalRef(array);}}}
   }
   quit=true;reply_ready.notify_all();
  }

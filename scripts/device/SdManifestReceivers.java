@@ -6,13 +6,34 @@ import android.os.IBinder;
 import android.os.Parcel;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /** Unordered explicit broadcasts to real receivers in the hosted APK. */
 public final class SdManifestReceivers {
-    private static final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private static final ExecutorService worker = createWorkerPool();
+    private static final ConcurrentHashMap<String, Object> processGates = new ConcurrentHashMap<String, Object>();
     private SdManifestReceivers() {}
+
+    private static ExecutorService createWorkerPool() {
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(4, 4, 30L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<Runnable>());
+        pool.allowCoreThreadTimeOut(true);
+        return pool;
+    }
+
+    private static Object gateForProcess(String processName) {
+        Object gate = processGates.get(processName);
+        if (gate == null) {
+            Object created = new Object();
+            Object existing = processGates.putIfAbsent(processName, created);
+            gate = existing != null ? existing : created;
+        }
+        return gate;
+    }
 
     private static ActivityInfo resolve(Intent intent) {
         ComponentName component = intent.getComponent();
@@ -48,30 +69,32 @@ public final class SdManifestReceivers {
         final String[] copiedPermissions = requiredPermissions == null ? null : requiredPermissions.clone();
         worker.execute(new Runnable() {
             public void run() {
-                try {
-                    String name = SdKernelServices.processName(SdApkPackage.NAME, info.processName);
-                    IBinder endpoint = SdKernelServices.registry().checkService(name);
-                    if (endpoint != null && !endpoint.isBinderAlive()) endpoint = null;
-                    if (endpoint == null) {
-                        org.saildroid.host.HostApi.startReceiverProcess(SdApkPackage.NAME, info.name, info.processName);
-                        endpoint = SdProcessStartup.awaitEndpoint(name, "Receiver process startup deadline");
-                    }
-                    Parcel data = Parcel.obtain(), reply = Parcel.obtain();
+                synchronized (gateForProcess(info.processName)) {
                     try {
-                        data.writeInterfaceToken(SdServiceEndpoint.DESCRIPTOR);
-                        data.writeString(SdApkPackage.NAME);
-                        intent.writeToParcel(data, 0);
-                        data.writeInt(result); data.writeString(resultData); data.writeBundle(copiedExtras);
-                        data.writeStringArray(copiedPermissions); data.writeInt(user);
-                        if (!endpoint.transact(SdServiceEndpoint.MANIFEST_RECEIVER, data, reply, 0))
-                            throw new RemoteException("Receiver endpoint rejected transaction");
-                        reply.readException();
-                    } finally { data.recycle(); reply.recycle(); }
-                } catch (Exception failure) {
-                    if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
-                    System.err.println("SDBROADCAST=manifest_dispatch_failed|class="+info.name
-                            +"|type="+failure.getClass().getName());
-                    failure.printStackTrace();
+                        String name = SdKernelServices.processName(SdApkPackage.NAME, info.processName);
+                        IBinder endpoint = SdKernelServices.registry().checkService(name);
+                        if (endpoint != null && !endpoint.isBinderAlive()) endpoint = null;
+                        if (endpoint == null) {
+                            org.saildroid.host.HostApi.startReceiverProcess(SdApkPackage.NAME, info.name, info.processName);
+                            endpoint = SdProcessStartup.awaitEndpoint(name, "Receiver process startup deadline");
+                        }
+                        Parcel data = Parcel.obtain(), reply = Parcel.obtain();
+                        try {
+                            data.writeInterfaceToken(SdServiceEndpoint.DESCRIPTOR);
+                            data.writeString(SdApkPackage.NAME);
+                            intent.writeToParcel(data, 0);
+                            data.writeInt(result); data.writeString(resultData); data.writeBundle(copiedExtras);
+                            data.writeStringArray(copiedPermissions); data.writeInt(user);
+                            if (!endpoint.transact(SdServiceEndpoint.MANIFEST_RECEIVER, data, reply, 0))
+                                throw new RemoteException("Receiver endpoint rejected transaction");
+                            reply.readException();
+                        } finally { data.recycle(); reply.recycle(); }
+                    } catch (Exception failure) {
+                        if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+                        System.err.println("SDBROADCAST=manifest_dispatch_failed|class="+info.name
+                                +"|type="+failure.getClass().getName());
+                        failure.printStackTrace();
+                    }
                 }
             }
         });

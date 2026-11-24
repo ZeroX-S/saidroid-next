@@ -50,6 +50,7 @@ static const char xml[] = R"(<node><interface name='org.saildroid.HostManager1'>
  <method name='Activate'><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='ActivateApplication'><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
  <method name='Close'><arg type='s' direction='in'/><arg type='s' direction='in'/></method>
+ <signal name='StateChanged'><arg type='s'/></signal>
  </interface></node>)";
 static unsigned credential(const char *sender, const char *method) {
   GError *e = nullptr;
@@ -80,8 +81,16 @@ static PeerCredentials caller_credentials(const char *sender) {
     peer_credentials.emplace(sender, resolved);
   return resolved;
 }
+static void notify_state_changed(const std::string &key) {
+  if (!connection)
+    return;
+  g_dbus_connection_emit_signal(connection, nullptr, OBJECT, IFACE,
+                                "StateChanged", g_variant_new("(s)", key.c_str()),
+                                nullptr);
+}
 static void publish(const std::string &key) {
   save_json(runtime_dir() / (key + ".json"), entries.at(key).record);
+  notify_state_changed(key);
 }
 static bool valid_package(const std::string &s) {
   return std::regex_match(
@@ -435,9 +444,10 @@ static void dispatch(GDBusConnection *, const gchar *sender, const gchar *,
           g_dbus_method_invocation_return_value(reply,
                                                 g_variant_new("(b)", free));
           return;
-        } else if (m == "ReleaseHeavy")
+        } else if (m == "ReleaseHeavy") {
           host.heavy = false;
-        else
+          notify_state_changed(a);
+        } else
           throw std::runtime_error("Unknown method");
       }
     }

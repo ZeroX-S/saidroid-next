@@ -21,7 +21,10 @@
 #include <memory>
 #include <unistd.h>
 #include <fcntl.h>
+#include <cstring>
+#include <sys/mman.h>
 #include <sys/prctl.h>
+#include <sys/stat.h>
 #include <sys/uio.h>
 #include <signal.h>
 #include <errno.h>
@@ -62,6 +65,8 @@ class WebHost : public QObject {
     QElapsedTimer lifetime;
     bool touchActive=false;
     int touchX=0,touchY=0;
+    unsigned char *shmBase=nullptr;
+    size_t shmSize=0;
 
     void packet(QJsonObject object, const QByteArray &payload = QByteArray()) {
         const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
@@ -263,10 +268,18 @@ class WebHost : public QObject {
             context.makeCurrent(&surface);
             QImage image = fbo->toImage().convertToFormat(QImage::Format_RGBA8888);
             if (image.isNull() || image.bytesPerLine() != width*4) { QCoreApplication::exit(17); return; }
+            const int frameBytes = width * height * 4;
             ++serial; ++sentFrames; awaitingAck = true; frameDirty = false;
-            packet(QJsonObject{{"event","frame"},{"seq",double(serial)},{"width",width},{"height",height},
-                   {"bytes",width*height*4},{"format","rgba8888"}},
-                   QByteArray(reinterpret_cast<const char *>(image.constBits()),width*height*4));
+            if (shmBase && size_t(frameBytes) <= size_t(maxFrameBytes)) {
+                const int slot = int(serial & 1u);
+                std::memcpy(shmBase + size_t(slot) * size_t(maxFrameBytes), image.constBits(), size_t(frameBytes));
+                packet(QJsonObject{{"event","frame"},{"seq",double(serial)},{"width",width},{"height",height},
+                       {"bytes",frameBytes},{"format","shm_rgba8888"},{"slot",slot}});
+            } else {
+                packet(QJsonObject{{"event","frame"},{"seq",double(serial)},{"width",width},{"height",height},
+                       {"bytes",frameBytes},{"format","rgba8888"}},
+                       QByteArray(reinterpret_cast<const char *>(image.constBits()), frameBytes));
+            }
             watchdog.start(15000); // A stalled/dead consumer cannot pin a renderer forever.
         }
     }
@@ -274,6 +287,20 @@ public:
     WebHost(int w, int h) : window(&control), input(STDIN_FILENO,QSocketNotifier::Read),
         output(STDOUT_FILENO,QSocketNotifier::Write), width(w), height(h) {
         lifetime.start();
+        if (const char *shmPath = ::getenv("SAILDROID_WEBVIEW_SHM_PATH")) {
+            const int fd = ::open(shmPath, O_RDWR | O_CLOEXEC | O_NOFOLLOW);
+            struct stat st{};
+            const size_t expected = size_t(maxFrameBytes) * 2u;
+            if (fd >= 0 && ::fstat(fd, &st) == 0 && S_ISREG(st.st_mode) &&
+                st.st_uid == ::getuid() && (st.st_mode & 077) == 0 && size_t(st.st_size) >= expected) {
+                void *mapped = ::mmap(nullptr, expected, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+                if (mapped != MAP_FAILED) {
+                    shmBase = static_cast<unsigned char *>(mapped);
+                    shmSize = expected;
+                }
+            }
+            if (fd >= 0) ::close(fd);
+        }
         output.setEnabled(false);
         fcntl(STDIN_FILENO,F_SETFL,fcntl(STDIN_FILENO,F_GETFL)|O_NONBLOCK);
         fcntl(STDOUT_FILENO,F_SETFL,fcntl(STDOUT_FILENO,F_GETFL)|O_NONBLOCK);
@@ -310,6 +337,7 @@ public:
     ~WebHost() override {
         renderTimer.stop();watchdog.stop();
         ime.reset();boundary.reset();context.makeCurrent(&surface);delete root;root=nullptr;control.invalidate();fbo.reset();
+        if (shmBase) { ::munmap(shmBase, shmSize); shmBase = nullptr; shmSize = 0; }
         qWarning("SDWEBHOST=closed|frames=%llu|renders=%llu|elapsed_ms=%lld",(unsigned long long)sentFrames,(unsigned long long)renders,(long long)lifetime.elapsed());
     }
 public slots:

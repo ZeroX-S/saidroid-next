@@ -1,8 +1,10 @@
 #include "host-common.hpp"
 #include "instrumentation-policy.hpp"
 #include "app-filesystem-policy.hpp"
+#include <condition_variable>
 #include <dlfcn.h>
 #include <linux/capability.h>
+#include <mutex>
 #include <pwd.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
@@ -38,16 +40,83 @@ extern "C" void sd_host_java_ready() {
     std::cerr << "SDHOST=lease_error|" << e.what() << '\n';
   }
 }
+namespace {
+struct StateWakeup {
+  std::mutex mutex;
+  std::condition_variable cv;
+  uint64_t serial = 0;
+  GDBusConnection *conn = nullptr;
+  guint filter_id = 0;
+  static constexpr const char *kMatchRule =
+      "type='signal',interface='org.saildroid.HostManager1',"
+      "member='StateChanged',path='/org/saildroid/HostManager'";
+  static GDBusMessage *on_filter(GDBusConnection *, GDBusMessage *msg,
+                                 gboolean incoming, gpointer data) {
+    if (incoming &&
+        g_dbus_message_get_message_type(msg) == G_DBUS_MESSAGE_TYPE_SIGNAL &&
+        g_strcmp0(g_dbus_message_get_interface(msg), IFACE) == 0 &&
+        g_strcmp0(g_dbus_message_get_member(msg), "StateChanged") == 0) {
+      auto *self = static_cast<StateWakeup *>(data);
+      std::lock_guard<std::mutex> lock(self->mutex);
+      ++self->serial;
+      self->cv.notify_all();
+    }
+    return msg;
+  }
+  explicit StateWakeup(GDBusConnection *c) : conn(c) {
+    if (conn) {
+      filter_id = g_dbus_connection_add_filter(conn, on_filter, this, nullptr);
+      GError *err = nullptr;
+      auto r = g_dbus_connection_call_sync(
+          conn, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+          "org.freedesktop.DBus", "AddMatch", g_variant_new("(s)", kMatchRule),
+          nullptr, G_DBUS_CALL_FLAGS_NONE, 1000, nullptr, &err);
+      if (r)
+        g_variant_unref(r);
+      else
+        g_clear_error(&err);
+    }
+  }
+  ~StateWakeup() {
+    if (conn && filter_id) {
+      g_dbus_connection_remove_filter(conn, filter_id);
+      GError *err = nullptr;
+      auto r = g_dbus_connection_call_sync(
+          conn, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+          "org.freedesktop.DBus", "RemoveMatch",
+          g_variant_new("(s)", kMatchRule), nullptr, G_DBUS_CALL_FLAGS_NONE,
+          1000, nullptr, &err);
+      if (r)
+        g_variant_unref(r);
+      else
+        g_clear_error(&err);
+    }
+  }
+  void wait_up_to_ms(uint64_t seen, int ms) {
+    std::unique_lock<std::mutex> lock(mutex);
+    cv.wait_for(lock, std::chrono::milliseconds(ms),
+                [&] { return serial != seen; });
+  }
+  uint64_t current() {
+    std::lock_guard<std::mutex> lock(mutex);
+    return serial;
+  }
+};
+} // namespace
 extern "C" int sd_host_prepare_art() {
   if (!registered)
     return 0;
   try {
     state("window-ready");
     if (instance != "org.saildroid.binder") {
+      StateWakeup wakeup(bus);
       auto v = call(bus, "EnsureBroker", nullptr);
       g_variant_unref(v);
       bool ready = false;
-      for (int i = 0; i < 400; i++) {
+      auto broker_deadline =
+          std::chrono::steady_clock::now() + std::chrono::seconds(20);
+      while (std::chrono::steady_clock::now() < broker_deadline) {
+        uint64_t seen = wakeup.current();
         auto r =
             call(bus, "GetState", g_variant_new("(s)", "org.saildroid.binder"));
         const char *t;
@@ -64,12 +133,15 @@ extern "C" int sd_host_prepare_art() {
           }
         } catch (...) {
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        wakeup.wait_up_to_ms(seen, 50);
       }
       if (!ready)
         throw std::runtime_error("Binder startup deadline expired");
       bool acquired = false;
-      for (int i = 0; i < 600; i++) {
+      auto admission_deadline =
+          std::chrono::steady_clock::now() + std::chrono::seconds(30);
+      while (std::chrono::steady_clock::now() < admission_deadline) {
+        uint64_t seen = wakeup.current();
         auto r = call(bus, "TryAcquireHeavy",
                       g_variant_new("(s)", instance.c_str()));
         gboolean ok;
@@ -79,7 +151,7 @@ extern "C" int sd_host_prepare_art() {
           acquired = true;
           break;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        wakeup.wait_up_to_ms(seen, 50);
       }
       if (!acquired)
         throw std::runtime_error("ART startup admission deadline expired");

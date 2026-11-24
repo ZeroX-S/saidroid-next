@@ -26,7 +26,7 @@ public final class SdAudio implements InvocationHandler {
         SdRtp.install();
     }
     private static synchronized JSONObject snapshot()throws Exception{
-        long now=SystemClock.uptimeMillis();if(snapshot==null||now-sampled>250){snapshot=new JSONObject(org.saildroid.host.HostApi.audioSnapshot());sampled=now;}return snapshot;
+        long now=SystemClock.uptimeMillis();if(snapshot==null||now-sampled>50){snapshot=new JSONObject(org.saildroid.host.HostApi.audioSnapshot());sampled=now;}return snapshot;
     }
     private static JSONObject output()throws Exception{
         JSONArray outputs=snapshot().getJSONArray("outputs");for(int i=0;i<outputs.length();i++)if(outputs.getJSONObject(i).getBoolean("default"))return outputs.getJSONObject(i);throw new IllegalStateException("Host default audio output unavailable");
@@ -104,12 +104,18 @@ public final class SdAudio implements InvocationHandler {
     }
     public static int listPatches(ArrayList<Object> patches,int[] generation){if(patches==null||generation==null||generation.length!=1)return -22;generation[0]=portGeneration;return 0;}
     public static void setupEvents(final Object reference){
-        // Android supplies a WeakReference. A daemon polls the actual host
-        // inventory and notifies the framework only when its routes change.
+        // Android supplies a WeakReference. Subscribe to actual PulseAudio events
+        // and notify the framework only when its routes change, with zero idle polling.
         final java.lang.ref.WeakReference<?> owner=(java.lang.ref.WeakReference<?>)reference;
-        Thread thread=new Thread(new Runnable(){public void run(){String previous=null;try{
+        Thread thread=new Thread(new Runnable(){public void run(){String previous=null;long generation=0;try{
             Method post=Class.forName("android.media.AudioPortEventHandler").getDeclaredMethod("postEventFromNative",Object.class,int.class,int.class,int.class,Object.class);post.setAccessible(true);
-            while(owner.get()!=null){String now=snapshot().toString();if(previous!=null&&!previous.equals(now))post.invoke(null,reference,1,0,0,null);previous=now;Thread.sleep(2000);}
+            while(owner.get()!=null){
+                synchronized(SdAudio.class){sampled=0;}
+                String now=snapshot().toString();
+                if(previous!=null&&!previous.equals(now))post.invoke(null,reference,1,0,0,null);
+                previous=now;
+                generation=org.saildroid.host.HostApi.awaitAudioRouteChange(generation,30000L);
+            }
         }catch(Exception failure){System.err.println("SDAUDIO=route_monitor_unavailable|type="+failure.getClass().getName());}}},"SailDroid-audio-routes");thread.setDaemon(true);thread.start();
     }
     private static final int APPLIED_ANDROID_MODE=AudioManager.MODE_NORMAL;

@@ -6,6 +6,7 @@ public final class HostApi {
     private HostApi(){}
     public static native void ready();
     public static native String audioSnapshot();
+    public static native long awaitAudioRouteChange(long generation, long timeoutMs);
     public static native int ringerMode();
     public static native int wifiEnabledState();
     public static native String wifiConnectionInfo(boolean includeName);

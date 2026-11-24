@@ -12,6 +12,10 @@ APT_PACKAGES=(
   rpm
   libcap2-bin
   bubblewrap
+  dbus-daemon
+  fakeroot
+  pulseaudio
+  pulseaudio-utils
   weston
   sshpass
   pkg-config
@@ -26,11 +30,13 @@ APT_PACKAGES=(
   libgstreamer1.0-dev
   libgstreamer-plugins-base1.0-dev
   qtbase5-dev
+  qtbase5-dev-tools
   qtdeclarative5-dev
   gcc-aarch64-linux-gnu
   g++-aarch64-linux-gnu
   binutils-aarch64-linux-gnu
   qemu-user
+  qemu-user-static
 )
 
 if command -v apt-get >/dev/null 2>&1; then

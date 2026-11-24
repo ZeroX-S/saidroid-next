@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unified host regression test, compatibility preflight, and native build runner."""
+"""Unified host regression test, live-daemon verification, AArch64 QEMU, and native build runner."""
 from pathlib import Path
 import argparse
 import json
@@ -35,7 +35,7 @@ def run_step(label: str, command: list[str], env: dict[str, str] | None = None) 
     return elapsed
 
 
-def verify_native_builds(work: Path, jni_include: Path) -> None:
+def verify_native_builds(work: Path, jni_include: Path) -> Path:
     out = work / 'native'
     out.mkdir(parents=True, exist_ok=True)
     jni_flags = [f'-I{jni_include}', f'-I{jni_include / "linux"}']
@@ -48,6 +48,9 @@ def verify_native_builds(work: Path, jni_include: Path) -> None:
     ).split()
     gio_flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gio-2.0'], text=True).split()
     pulse_flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'libpulse'], text=True).split()
+    gst_flags = subprocess.check_output(
+        ['pkg-config', '--cflags', '--libs', 'gstreamer-1.0', 'gstreamer-app-1.0', 'gstreamer-video-1.0'], text=True
+    ).split()
 
     xdg_xml = '/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml'
     subprocess.run(['wayland-scanner', 'client-header', xdg_xml, str(out / 'xdg-shell-client-protocol.h')], check=True)
@@ -140,6 +143,45 @@ def verify_native_builds(work: Path, jni_include: Path) -> None:
             str(REPO / 'native/host' / host_unit),
             *art_includes, *gio_flags,
         ], check=True)
+    subprocess.run([
+        'g++', '-O2', '-std=c++17', '-Wall', '-Wextra', '-Werror=return-type',
+        str(REPO / 'native/media/droid-camera/camera-helper.cpp'),
+        '-o', str(out / 'sdcamera-helper'), '-ldl', '-pthread',
+    ], check=True)
+    subprocess.run([
+        'g++', '-shared', '-fPIC', '-O2', '-std=c++17', '-Wall', '-Wextra', '-Werror=return-type',
+        *jni_flags, str(REPO / 'native/media/droid-camera/camera-host.cpp'),
+        '-o', str(out / 'libsdcamera-host.so'), '-ldl', '-pthread', '-Wl,-z,defs',
+    ], check=True)
+    subprocess.run([
+        'g++', '-shared', '-fPIC', '-O2', '-std=c++17', '-Wall', '-Wextra', '-Werror=return-type',
+        *jni_flags, str(REPO / 'native/media/gstreamer-player/player-host.cpp'),
+        '-o', str(out / 'libsdmediaplayer-host.so'), *gst_flags, '-ldl', '-pthread', '-Wl,-z,defs',
+    ], check=True)
+    subprocess.run([
+        'g++', '-std=c++17', '-O2', '-Wall', '-Wextra',
+        str(REPO / 'native/webview/qt-helper/native-host.cpp'),
+        '-o', str(out / 'sdwebview-host'),
+    ], check=True)
+    moc = '/usr/lib/qt5/bin/moc' if Path('/usr/lib/qt5/bin/moc').is_file() else shutil.which('moc')
+    if moc:
+        qt_cflags = subprocess.check_output(
+            ['pkg-config', '--cflags', 'Qt5Quick', 'Qt5Qml', 'Qt5Gui', 'Qt5Core', 'glesv2', 'gobject-2.0', 'glib-2.0'],
+            text=True,
+        ).split()
+        qt_libs = subprocess.check_output(
+            ['pkg-config', '--libs', 'Qt5Quick', 'Qt5Qml', 'Qt5Gui', 'Qt5Core', 'glesv2', 'gobject-2.0', 'glib-2.0'],
+            text=True,
+        ).split()
+        subprocess.run([str(moc), str(REPO / 'native/webview/qt-helper/sdwebviewd.cpp'), '-o', str(out / 'sdwebviewd.moc')], check=True)
+        subprocess.run([
+            'g++', '-std=c++17', '-O2', '-fPIC', '-Wall', '-Wextra', '-Wno-deprecated-copy',
+            *qt_cflags, f'-I{out}',
+            str(REPO / 'native/webview/qt-helper/sdwebviewd.cpp'),
+            '-Wl,--allow-shlib-undefined', *qt_libs,
+            '-o', str(out / 'sdwebviewd'),
+        ], check=True)
+    return out
 
 
 def main() -> None:
@@ -171,6 +213,14 @@ def main() -> None:
         )
         passed += 1
 
+        native_out: Path | None = None
+        if not args.skip_native:
+            print('==> [native-compile-all]', flush=True)
+            t0 = time.monotonic()
+            native_out = verify_native_builds(work, jni_include)
+            print(f'    PASS ({time.monotonic() - t0:.2f}s)', flush=True)
+            passed += 1
+
         run_step(
             'compat-unit-tests',
             [sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts/compat/tests'],
@@ -185,12 +235,30 @@ def main() -> None:
         )
         passed += 1
 
+        pa_cmd = [
+            sys.executable, 'native/host/tests/test-pulseaudio-live.py',
+            '--framework', str(framework), '--classes', str(classes_dir), '--jni-include', str(jni_include),
+        ]
+        if native_out and (native_out / 'libsdhostapi.so').is_file():
+            pa_cmd.extend(['--hostapi-so', str(native_out / 'libsdhostapi.so')])
+
+        wl_cmd = [
+            sys.executable, 'native/window/tests/test-wayland-headless.py',
+            '--framework', str(framework), '--classes', str(classes_dir), '--jni-include', str(jni_include),
+        ]
+        if native_out and (native_out / 'libsdwindow.so').is_file():
+            wl_cmd.extend(['--window-so', str(native_out / 'libsdwindow.so')])
+
         for label, cmd in [
             ('hardware-identity', [sys.executable, 'scripts/runtime/tests/check-hardware-identity.py']),
             ('webview-geometry', [sys.executable, 'scripts/runtime/tests/test-webview-geometry-vm.py', '--android-jar', str(framework)]),
+            ('webview-shm', [sys.executable, 'scripts/runtime/tests/test-webview-shm.py', '--android-jar', str(framework)]),
             ('native-loader', [sys.executable, 'scripts/runtime/tests/test-native-loader-vm.py']),
             ('app-aot-cache', [sys.executable, 'scripts/perf/test-app-aot-cache-vm.py']),
+            ('aarch64-contracts', [sys.executable, 'tools/test-aarch64-contracts.py']),
             ('host-manager-dbus', ['bash', 'native/host/tests/run-vm.sh']),
+            ('pulseaudio-live', pa_cmd),
+            ('wayland-headless', wl_cmd),
             ('audio-output-registration', [sys.executable, 'scripts/api28/tests/check-audio-output-registration.py', '--jni-include', str(jni_include)]),
             ('audio-sink-metadata', [sys.executable, 'scripts/api28/tests/check-audio-sink-metadata.py', '--jni-include', str(jni_include)]),
             ('component-identity', [sys.executable, 'scripts/api28/tests/check-component-identity.py', '--jni-include', str(jni_include)]),
@@ -198,13 +266,24 @@ def main() -> None:
             run_step(label, cmd, env=env)
             passed += 1
 
-        if os.geteuid() == 0:
-            run_step('binder-setup', [sys.executable, 'scripts/packaging/test-binder-setup.py'], env=env)
-            passed += 1
-            run_step('setup-vm', [sys.executable, 'scripts/packaging/test-setup-vm.py', '--output', str(work / 'setup-vm')], env=env)
-            passed += 1
+        fakeroot = shutil.which('fakeroot')
+        if os.geteuid() == 0 or fakeroot:
+            prefix = [] if os.geteuid() == 0 else [fakeroot]
+            for label, cmd in [
+                ('binder-setup', [*prefix, sys.executable, 'scripts/packaging/test-binder-setup.py']),
+                ('product-properties', [*prefix, sys.executable, 'native/compat/tests/check-product-properties.py']),
+                ('host-timezone', [
+                    *prefix, sys.executable, 'native/compat/tests/check-host-timezone.py',
+                    '--framework', str(framework), '--jni-include', str(jni_include),
+                ]),
+            ]:
+                run_step(label, cmd, env=env)
+                passed += 1
+            if os.geteuid() == 0:
+                run_step('setup-vm', [sys.executable, 'scripts/packaging/test-setup-vm.py', '--output', str(work / 'setup-vm')], env=env)
+                passed += 1
         else:
-            print('==> [packaging-root-fixtures] SKIP (requires root)', flush=True)
+            print('==> [packaging-root-fixtures] SKIP (requires root or fakeroot)', flush=True)
 
         for test_name in (
             'test-process-startup.py',
@@ -254,13 +333,6 @@ def main() -> None:
         ], cwd=REPO, check=True)
         print('    PASS', flush=True)
         passed += 1
-
-        if not args.skip_native:
-            print('==> [native-compile-all]', flush=True)
-            t0 = time.monotonic()
-            verify_native_builds(work, jni_include)
-            print(f'    PASS ({time.monotonic() - t0:.2f}s)', flush=True)
-            passed += 1
 
     total_s = time.monotonic() - started_all
     print(f'\nSAILDROID_TESTS=PASS|suites={passed}|elapsed_s={total_s:.2f}', flush=True)
