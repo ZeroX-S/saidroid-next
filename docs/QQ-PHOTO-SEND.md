@@ -31,7 +31,7 @@ QQ 相册 `FlashTransferPickerCustomization.sendNormal()` 把选中照片封装�
 ## 验证
 
 ```sh
-JAVA_HOME=/path/to/jdk python3 scripts/api29/tests/test-activity-clear-top.py
+JAVA_HOME=/path/to/jdk python3 scripts/runtime/tests/test-activity-clear-top.py
 ```
 
 该测试编译真实 `reuseClearTop()` 方法，覆盖 12 种情况：组合标记、目标

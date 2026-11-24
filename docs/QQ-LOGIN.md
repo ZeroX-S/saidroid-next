@@ -50,7 +50,7 @@ QQ 主界面，实际屏幕已确认显示消息/聊天列表，本次登录问�
 等待逻辑回归：
 
 ```sh
-JAVA_HOME=/path/to/jdk python3 scripts/api29/tests/test-process-startup.py
+JAVA_HOME=/path/to/jdk python3 scripts/runtime/tests/test-process-startup.py
 ```
 
 覆盖立即就绪、超过旧 30 秒窗口后就绪、死亡 Binder、最终超时、中断和

@@ -100,6 +100,11 @@ public final class SdApkPackage {
         if(result.isEmpty()){ResolveInfo document=SdDocumentPicker.resolve(intent,type);if(document!=null)result.add(document);}
         return result;
     }
+    private static SdAppPermissions cachedPermissions;
+    private static synchronized SdAppPermissions permissions()throws Exception{
+        if(cachedPermissions==null)cachedPermissions=new SdAppPermissions(APK,NAME);
+        return cachedPermissions;
+    }
     public static PackageInfo packageInfo(int flags){
         PackageParser.Package source=parsed();PackageInfo result=new PackageInfo();result.packageName=NAME;result.versionCode=source.mVersionCode;result.versionName=source.mVersionName;result.applicationInfo=applicationInfo();result.installLocation=source.installLocation;
         if((flags&PackageManager.GET_INSTRUMENTATION)!=0){java.util.ArrayList<android.content.pm.InstrumentationInfo> entries=new java.util.ArrayList<android.content.pm.InstrumentationInfo>();for(PackageParser.Instrumentation item:source.instrumentation)entries.add(SdInstrumentation.info(new ComponentName(NAME,item.info.name)));result.instrumentation=entries.toArray(new android.content.pm.InstrumentationInfo[entries.size()]);}
@@ -111,7 +116,7 @@ public final class SdApkPackage {
             result.requestedPermissions=source.requestedPermissions.toArray(new String[source.requestedPermissions.size()]);
             result.requestedPermissionsFlags=new int[result.requestedPermissions.length];
             try{
-                SdAppPermissions permissions=new SdAppPermissions(APK,NAME);
+                SdAppPermissions permissions=permissions();
                 for(int index=0;index<result.requestedPermissions.length;index++)result.requestedPermissionsFlags[index]=PackageInfo.REQUESTED_PERMISSION_REQUIRED|(permissions.holds(result.requestedPermissions[index])?PackageInfo.REQUESTED_PERMISSION_GRANTED:0);
             }catch(Exception failure){throw new IllegalStateException("Cannot read package permission flags",failure);}
         }

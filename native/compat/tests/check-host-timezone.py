@@ -136,7 +136,7 @@ def main():
                         '-I' + str(arguments.jni_include), '-I' + str(arguments.jni_include / 'linux'),
                         '-DSD_HOST_LOCALTIME_FILE="' + str(selected) + '"',
                         '-DSD_HOST_ZONEINFO_DIRECTORY="' + str(zones) + '"',
-                        str(repository / 'native/compat/api29-hardware-properties.c'),
+                        str(repository / 'native/compat/runtime-hardware-properties.c'),
                         str(private_source), '-o', str(library), '-ldl', '-pthread'], check=True)
         native = ctypes.CDLL(str(library))
         native.current.restype = ctypes.c_char_p

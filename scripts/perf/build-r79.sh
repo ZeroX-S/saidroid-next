@@ -5,8 +5,8 @@ cd /media/psf/Home/WorkSpace/saidroid-next
 OUT=/var/tmp/saidroid-next-api29-product-r79
 CMP=/var/tmp/saidroid-next-api29-component-r79
 rm -rf "$OUT" "$CMP"
-python3 scripts/api29/build-product.py build/codex-api29/inputs "$OUT"
-python3 scripts/api29/package-component.py build/codex-api29/inputs \
+python3 scripts/runtime/build-product.py build/codex-api29/inputs "$OUT"
+python3 scripts/runtime/package-component.py build/codex-api29/inputs \
   /var/tmp/saidroid-next-framework-20261025-r4 \
   /var/tmp/saidroid-next-core-20261025-r10 \
   "$OUT" \

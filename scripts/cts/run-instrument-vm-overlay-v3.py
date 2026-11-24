@@ -39,7 +39,7 @@ try:
    time.sleep(.2)
   assert(transport_path/'ready.json').is_file(),'Recorded VM network relay readiness deadline'
  subprocess.run(['python3',str(repo/'scripts/perf/close-owned-vm.py')],check=True,timeout=50)
- if a.stage_bundle:subprocess.run(['python3',str(repo/'scripts/api29/deploy-native-overlay-v3.py'),str(a.stage_bundle),Path(config['root']).name.removeprefix('api29-'),'--expected-active','/home/art/releases/api29-r112-native-candidate'],check=True,timeout=160)
+ if a.stage_bundle:subprocess.run(['python3',str(repo/'scripts/runtime/deploy-native-overlay-v3.py'),str(a.stage_bundle),Path(config['root']).name.removeprefix('api29-'),'--expected-active','/home/art/releases/api29-r112-native-candidate'],check=True,timeout=160)
  subprocess.run(ssh+['test ! -e '+base+' && install -d -m0700 '+base],check=True,timeout=12)
  for apk in config['apks']+config.get('dynamic_configs',[])+config.get('pushed_files',[]):subprocess.run(scp+[str(out/apk['file']),'root@bonito:'+base+'/'+apk['file']],check=True,timeout=max(90,45+(out/apk['file']).stat().st_size//(4*1024*1024)))
  support=(repo/'scripts/cts/temporary_directory_preparer.py').read_text()if config.get('directory_preparation')else''

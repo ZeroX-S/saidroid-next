@@ -22,7 +22,7 @@ def main():
     component = Path('/var/tmp/saidroid-next-api29-component-perf-' + tag)
     assert (component / 'component.tar.gz').is_file(), 'build the release first'
     run = '20261026-' + tag
-    subprocess.run([sys.executable, str(REPO / 'scripts/api29/deploy-component.py'),
+    subprocess.run([sys.executable, str(REPO / 'scripts/runtime/deploy-component.py'),
                     str(component), run], check=True)
     print('PERF_RELEASE_INSTALLED=api29-' + run)
 

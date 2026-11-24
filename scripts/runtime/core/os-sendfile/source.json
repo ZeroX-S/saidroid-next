@@ -1,0 +1,15 @@
+{
+  "scope": "API29 Int64Ref sendfile carrier over unchanged native MutableLong ABI; null offset retains kernel file-position behavior; success-only copyout; all legacy methods retained",
+  "baseline_source": "scripts/runtime/core/os-ioctl/android/system/Os.java",
+  "baseline_sha256": "850e1c9cfa9a406b21b296362ab02585733a9c24833183ebeee92be15db0dbcd",
+  "source": "android/system/Os.java",
+  "sha256": "eaa4d347bf6edc8d2e282a09def559c382976ec391c7d3658201c85665565cb9",
+  "upstream": {
+    "url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/luni/src/main/java/android/system/Os.java?format=TEXT",
+    "sha256": "2f79f9b8c8b5fb4ca045126b16c2be7af893df37eda4a4a75e4f6e120416c252"
+  },
+  "native_upstream": {
+    "url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/luni/src/main/native/libcore_io_Linux.cpp?format=TEXT",
+    "sha256": "60019cfd27653b09eb1f0be65c0a1d343c7a200977a1fd4f6401a5179c2245b1"
+  }
+}

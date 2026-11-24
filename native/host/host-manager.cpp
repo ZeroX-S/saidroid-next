@@ -1,8 +1,14 @@
 #include "host-common.hpp"
 #include <deque>
 #include <map>
+#include <unordered_map>
 static fs::path component;
 static GDBusConnection *connection;
+struct PeerCredentials {
+  unsigned uid;
+  pid_t pid;
+};
+static std::unordered_map<std::string, PeerCredentials> peer_credentials;
 struct Entry {
   Json record;
   std::string sender;
@@ -59,6 +65,20 @@ static unsigned credential(const char *sender, const char *method) {
   g_variant_get(v, "(u)", &n);
   g_variant_unref(v);
   return n;
+}
+static PeerCredentials caller_credentials(const char *sender) {
+  if (!sender || !*sender)
+    throw std::runtime_error("Caller credentials unavailable");
+  if (sender[0] == ':') {
+    auto cached = peer_credentials.find(sender);
+    if (cached != peer_credentials.end())
+      return cached->second;
+  }
+  PeerCredentials resolved{credential(sender, "GetConnectionUnixUser"),
+                           static_cast<pid_t>(credential(sender, "GetConnectionUnixProcessID"))};
+  if (sender[0] == ':')
+    peer_credentials.emplace(sender, resolved);
+  return resolved;
 }
 static void publish(const std::string &key) {
   save_json(runtime_dir() / (key + ".json"), entries.at(key).record);
@@ -176,9 +196,10 @@ static void dispatch(GDBusConnection *, const gchar *sender, const gchar *,
                      const gchar *, const gchar *method, GVariant *params,
                      GDBusMethodInvocation *reply, gpointer) {
   try {
-    if (credential(sender, "GetConnectionUnixUser") != getuid())
+    auto caller = caller_credentials(sender);
+    if (caller.uid != getuid())
       throw std::runtime_error("Caller UID differs");
-    pid_t pid = credential(sender, "GetConnectionUnixProcessID");
+    pid_t pid = caller.pid;
     const char *a = "", *b = "", *c = "";
     std::string m = method;
     Json out;
@@ -281,14 +302,14 @@ static void dispatch(GDBusConnection *, const gchar *sender, const gchar *,
       auto it = entries.find(a);
       if (it == entries.end() || !alive(it->second.record))
         throw std::runtime_error("Service application owner ended");
-      bool caller = it->second.record.at("pid") == pid;
+      bool caller_owned = it->second.record.at("pid") == pid;
       for (auto &[key, entry] : entries)
         if (alive(entry.record) && entry.record.at("pid") == pid &&
             entry.record.value("package", "") == a &&
             entry.record.value("owner_launch_id", "") ==
                 it->second.record.value("launch_id", ""))
-          caller = true;
-      if (!caller)
+          caller_owned = true;
+      if (!caller_owned)
         throw std::runtime_error(
             "Service caller differs from application family");
       launch({"--package", a, m == "StartService" ? "--service" : m == "StartActivityProcess" ? "--activity-process" : m == "StartReceiverProcess" ? "--receiver-process" : "--provider-process", b, "--process", c, "--owner-launch",
@@ -426,12 +447,24 @@ static void dispatch(GDBusConnection *, const gchar *sender, const gchar *,
                                                e.what());
   }
 }
+static void on_name_owner_changed(GDBusConnection *, const gchar *,
+                                  const gchar *, const gchar *, const gchar *,
+                                  GVariant *parameters, gpointer) {
+  const char *name = "", *old_owner = "", *new_owner = "";
+  g_variant_get(parameters, "(&s&s&s)", &name, &old_owner, &new_owner);
+  if (name && name[0] == ':' && (!new_owner || !*new_owner))
+    peer_credentials.erase(name);
+}
 int sd_manager_main(const fs::path &root) {
   component = root;
   GError *e = nullptr;
   connection = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &e);
   if (!connection)
     throw std::runtime_error(e ? e->message : "Session bus unavailable");
+  g_dbus_connection_signal_subscribe(
+      connection, "org.freedesktop.DBus", "org.freedesktop.DBus",
+      "NameOwnerChanged", "/org/freedesktop/DBus", nullptr,
+      G_DBUS_SIGNAL_FLAGS_NONE, on_name_owner_changed, nullptr, nullptr);
   auto result = g_dbus_connection_call_sync(
       connection, "org.freedesktop.DBus", "/org/freedesktop/DBus",
       "org.freedesktop.DBus", "RequestName", g_variant_new("(su)", BUS, 4u),

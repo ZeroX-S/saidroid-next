@@ -13,7 +13,7 @@ for name in ['RefreshLaunchers','RegistryBridge']:
  out=a.output/name;out.mkdir();run([str(a.jdk/'bin/java'),'-cp',str(r8),'com.android.tools.r8.D8','--release','--min-api','29','--output',str(out),str(classes/('org/saildroid/setup/'+name+'.class'))])
 # Only the narrow newly introduced bridge entry is public. Existing CLI and
 # framework hidden-API flags are neither changed nor exempted.
-spec=importlib.util.spec_from_file_location('hiddenapi',repo/'scripts/api29/encode-hiddenapi-vm.py');encoder=importlib.util.module_from_spec(spec);spec.loader.exec_module(encoder)
+spec=importlib.util.spec_from_file_location('hiddenapi',repo/'scripts/runtime/encode-hiddenapi-vm.py');encoder=importlib.util.module_from_spec(spec);spec.loader.exec_module(encoder)
 raw=a.output/'RegistryBridge/classes.dex';members,code=encoder.dex_members(raw.read_bytes());public='Lorg/saildroid/setup/RegistryBridge;->refresh(Ljava/lang/String;)V';assert public in members
 flags=a.output/'registry-bridge-flags.csv';flags.write_text(''.join(n+(','+'whitelist'if n==public else',blacklist')+'\n'for n in sorted(members)))
 encoded=a.output/'registry-bridge-encoded.dex';tool=Path('/var/tmp/saidroid-hiddenapi-tool-20261031/hiddenapi');run([str(tool),'encode','--input-dex='+str(raw),'--output-dex='+str(encoded),'--api-flags='+str(flags)])

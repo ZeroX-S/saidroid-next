@@ -1,0 +1,14 @@
+{
+  "scope": "Replace only old Matcher.appendEvaluated with exact Android10 helper for malformed replacement backslash/dollar/namedgroup errors. Preserve current private JNI/class layout/all public group validation/null semantics and remaining source bytes. No test/assertion/heap/filter/clock changes.",
+  "files": {
+    "java/util/regex/Matcher.java": {
+      "sha256": "6272942c03d8fa8c94edc0cbd297018dc121c410abe754914806adc2986541e8",
+      "baseline_source": "scripts/runtime/core/Matcher.java",
+      "baseline_sha256": "3797fa5a6f016a70103564161500dba1c341778b61f287e9662301dc7564d458",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/matcher248-v1/Matcher.java",
+      "reference_sha256": "5c6a94862435886be889f6beefe5e3786918ebe7b67183d041a6402be94f63dd"
+    }
+  },
+  "patch_sha256": "aca06d8ba73ec5067ad2f4e8b5d98bb1bae6edb84b5a1b37fef920bdf7a5b1bd",
+  "exact_reference_method_sha256": "1649ccec0c7c81f38432a7b8b114b9476011e19127dbcaa5370b357591fc7866"
+}

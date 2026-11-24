@@ -1,5 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-$SSH "grep -a 'QP\[' /home/art/test/qq.log | sed -n '/QP\[21\]/,\$p' | head -16"
-echo "=== 最后 20 行非 reloc ==="
-$SSH "grep -av 'packed reloc' /home/art/test/qq.log | tail -20 | cut -c1-200"

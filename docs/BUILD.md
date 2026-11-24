@@ -18,9 +18,9 @@ python3 tools/apply-third-party-patches.py
 
 主要入口：
 
-- `scripts/api29/fetch-inputs.py INPUTS [--skip-sysimg]`：下载并校验固定 Android API 28 系统镜像、Robolectric 框架 JAR、独立 ART 核心依赖参考 JAR 及 R8 编译器。
-- `scripts/api28/build-framework-source.py` / `scripts/api29/build-framework.py`：准备并编译 API 28 框架 DEX。
-- `scripts/api29/build-product.py INPUTS OUTPUT [--compat-only]`：构建 API 28 Java 运行时（含 SIP/RTP 引用层）、执行源码兼容性预检，并编译原生宿主组件。
+- `scripts/runtime/fetch-inputs.py INPUTS [--skip-sysimg]`：下载并校验固定 Android API 28 系统镜像、Robolectric 框架 JAR、独立 ART 核心依赖参考 JAR 及 R8 编译器。
+- `scripts/api28/build-framework-source.py` / `scripts/runtime/build-framework.py`：准备并编译 API 28 框架 DEX。
+- `scripts/runtime/build-product.py INPUTS OUTPUT [--compat-only]`：构建 API 28 Java 运行时（含 SIP/RTP 引用层）、执行源码兼容性预检，并编译原生宿主组件。
 - `scripts/compat/run-preflight.py`：汇总 API 28 公开 SDK 成员、JNI 字面量描述符、服务分派路由、ELF 依赖及打包 ART 契约检查（详见 `scripts/compat/README.md`）。
 - `scripts/packaging/README.md` / `scripts/packaging/build-runtime-rpm-vm.py --help`：版本隔离、核心链接器核对、清单封签、RPM 打包与激活流程。
 

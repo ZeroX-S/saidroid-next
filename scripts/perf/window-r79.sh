@@ -10,7 +10,7 @@ python3 scripts/perf/close-owned-vm.py || exit 4
 
 echo "=== deploy r79"
 sshpass -e ssh -o StrictHostKeyChecking=no root@bonito 'rm -rf /home/art/test/api29-deploy-r79' || exit 5
-python3 scripts/api29/deploy-component.py /var/tmp/saidroid-next-api29-component-r79 r79 || exit 5
+python3 scripts/runtime/deploy-component.py /var/tmp/saidroid-next-api29-component-r79 r79 || exit 5
 readlink /home/art/api29-root
 
 echo "=== install probe APK"

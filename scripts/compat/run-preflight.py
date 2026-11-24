@@ -103,9 +103,9 @@ def main():
             report['r8'] = dict(path=str(arguments.r8), sha256=r8_sha)
         tool_files = [path for path in (repository / 'scripts/compat').rglob('*')
                       if path.is_file() and path.suffix in ('.py', '.java', '.json')]
-        tool_files.extend([repository / 'scripts/api29/build-product.py',
+        tool_files.extend([repository / 'scripts/runtime/build-product.py',
                            repository / 'scripts/api28/encode-platform-dex.py',
-                           repository / 'scripts/api29/encode-hiddenapi-vm.py'])
+                           repository / 'scripts/runtime/encode-hiddenapi-vm.py'])
         save(arguments.output / 'tool-inputs.json', {str(path.relative_to(repository)): digest(path)
                                                     for path in sorted(tool_files)})
         reference = read_path(arguments.framework)

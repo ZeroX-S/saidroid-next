@@ -1,3 +1,0 @@
-F=/tmp/ap/SdPackageManagerService.java
-JAVA=/tmp/jdkfull/jdk-21.0.13+9/bin
-$JAVA/javap -p -classpath /tmp/fw23/cls android.content.pm.IPackageManager 2>/dev/null | grep abstract | grep -E "getPackageInfo|getApplicationInfo|queryIntentActivities|resolveIntent|checkPermission|checkUidPermission|getInstalledPackages|getInstalledApplications|getActivityInfo|getServiceInfo|isPackageAvailable|isPackageFrozen|getPackagesForUid|getPackageGids|getProviderInfo|getReceiverInfo|getPermissionInfo|getSystemAvailableFeatures|hasSystemFeature|resolveService|queryIntentServices|getPersistentApplications|getIntentSender" | sed 's/ throws android.os.RemoteException//'

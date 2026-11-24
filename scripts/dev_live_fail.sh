@@ -1,6 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-echo "=== 有没有 FAIL / 异常 ==="
-$SSH "grep -a 'FAIL\|Exception\|error' /home/art/test/live.log | grep -av 'packed reloc' | head -10"
-echo "=== 全部非心跳标记 ==="
-$SSH "grep -a 'LP\[' /home/art/test/live.log | grep -av 心跳 | tail -8"

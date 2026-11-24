@@ -1,6 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-echo "=== gdb 停下来的原因 ==="
-$SSH "grep -an 'Breakpoint\|Program received\|Thread .* received\|warning' /home/art/test/gdb2.log | head -10"
-echo "=== gdb2.log 尾部 ==="
-$SSH "grep -av 'packed reloc' /home/art/test/gdb2.log | tail -24 | cut -c1-200"

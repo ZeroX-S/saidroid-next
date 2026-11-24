@@ -1,6 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-echo "=== QP 17 以后 ==="
-$SSH "grep -a 'QP\[' /home/art/test/qq.log | sed -n '/QP\[17\]/,\$p' | head -8"
-echo "=== SDBRIDGE 加载行 ==="
-$SSH "grep -a 'SDBRIDGE loaded\|SDBRIDGE bionic_dlopen failed' /home/art/test/qq.log | tail -4"

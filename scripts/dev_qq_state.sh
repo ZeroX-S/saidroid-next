@@ -1,8 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@bonito"
-echo "=== realapps/qq ==="
-$SSH "ls -l /home/art/realapps/qq | head -12; du -sh /home/art/realapps/qq 2>/dev/null"
-echo "=== 已有的 qq oat/dex ==="
-$SSH "ls -l /home/art/java/dex/art/ | grep -i qq | head -5; du -sh /home/art/java/dex/art 2>/dev/null"
-echo "=== qq 相关脚本 ==="
-$SSH "ls /home/art | grep -i qq | head -8"

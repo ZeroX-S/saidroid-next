@@ -61,7 +61,7 @@ def main():
     parser.add_argument('--source', type=Path)
     arguments = parser.parse_args()
     repository = Path(__file__).resolve().parents[3]
-    source = arguments.source or repository / 'native/compat/api29-hardware-properties.c'
+    source = arguments.source or repository / 'native/compat/runtime-hardware-properties.c'
     fields = ('manufacturer', 'brand', 'model', 'name', 'device')
     vendor = dict(zip(('ro.product.vendor.' + name for name in fields),
                       ('Xiaomi', 'Xiaomi', '21051182G', 'nabu_global', 'nabu')))

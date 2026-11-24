@@ -81,7 +81,7 @@ git -C "$REPO_ROOT" submodule foreach 'git checkout -- . && git clean -fdx' >/de
 python3 "$REPO_ROOT/tools/apply-third-party-patches.py"
 
 mkdir -p "$SAILDROID_INPUTS" "$REPO_ROOT/build"
-python3 "$REPO_ROOT/scripts/api29/fetch-inputs.py" "$SAILDROID_INPUTS" --skip-sysimg
+python3 "$REPO_ROOT/scripts/runtime/fetch-inputs.py" "$SAILDROID_INPUTS" --skip-sysimg
 ln -sfn "$SAILDROID_INPUTS" "$REPO_ROOT/build/inputs"
 
 echo "SAILDROID_DEV_ENV=ready|inputs=$SAILDROID_INPUTS"

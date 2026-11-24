@@ -1,0 +1,11 @@
+--- scripts/device/SdApkPackage.java
++++ scripts/runtime/instrumentation-metadata-compat/SdApkPackage.java
+@@ -92,7 +92,7 @@
+     }
+     public static PackageInfo packageInfo(int flags){
+         PackageParser.Package source=parsed();PackageInfo result=new PackageInfo();result.packageName=NAME;result.versionCode=source.mVersionCode;result.versionName=source.mVersionName;result.applicationInfo=applicationInfo();result.installLocation=source.installLocation;
+-        if((flags&PackageManager.GET_INSTRUMENTATION)!=0){java.util.ArrayList<android.content.pm.InstrumentationInfo> entries=new java.util.ArrayList<android.content.pm.InstrumentationInfo>();for(PackageParser.Instrumentation item:source.instrumentation)entries.add(SdInstrumentation.info(new ComponentName(NAME,item.info.name)));result.instrumentation=entries.toArray(new android.content.pm.InstrumentationInfo[entries.size()]);}
++        if((flags&PackageManager.GET_INSTRUMENTATION)!=0){java.util.ArrayList<android.content.pm.InstrumentationInfo> entries=new java.util.ArrayList<android.content.pm.InstrumentationInfo>();for(PackageParser.Instrumentation item:source.instrumentation)entries.add(SdInstrumentation.info(new ComponentName(NAME,item.info.name),flags));result.instrumentation=entries.toArray(new android.content.pm.InstrumentationInfo[entries.size()]);}
+         if((flags&PackageManager.GET_ACTIVITIES)!=0){ArrayList<ActivityInfo> entries=new ArrayList<ActivityInfo>();for(PackageParser.Activity a:source.activities)if(a.info.enabled||(flags&PackageManager.GET_DISABLED_COMPONENTS)!=0)entries.add(activity(a));result.activities=entries.toArray(new ActivityInfo[entries.size()]);}
+         if((flags&PackageManager.GET_RECEIVERS)!=0){ArrayList<ActivityInfo> entries=new ArrayList<ActivityInfo>();for(PackageParser.Activity a:source.receivers)entries.add(activity(a));result.receivers=entries.toArray(new ActivityInfo[entries.size()]);}
+         if((flags&PackageManager.GET_SERVICES)!=0){ArrayList<ServiceInfo> entries=new ArrayList<ServiceInfo>();for(PackageParser.Service a:source.services){ServiceInfo info=new ServiceInfo(a.info);info.applicationInfo=applicationInfo();info.metaData=a.metaData;entries.add(info);}result.services=entries.toArray(new ServiceInfo[entries.size()]);}

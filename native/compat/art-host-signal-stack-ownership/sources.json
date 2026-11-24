@@ -1,9 +1,0 @@
-{
-  "scope": "ART Linux host thread signal-stack ownership only. Remember actual guarded mmap and prior kernel alt stack. On teardown restore prior stack only if current overlaps owned mapping; preserve separate application replacement or disabled state; munmap only exact owned mapping. No heap/JIT/targetSDK/test/timeout/clock/phone changes.",
-  "baseline_source": "native/compat/art-host-signal-stack/thread_linux.cc",
-  "baseline_sha256": "7d466c85de58698394e5ab4343534b981fcfd9f54c9230f8a598dcfde06bdade",
-  "source": "native/compat/art-host-signal-stack-ownership/thread_linux.cc",
-  "source_sha256": "95ca35e616570cd97481683a260440baa2cafd102c185bdc8bdc80ada9e2278a",
-  "patch": "native/compat/art-host-signal-stack-ownership/ownership.patch",
-  "patch_sha256": "03808ec807f3dc01db07200092143edbb87cd73ee58a47ca4002ee335b48880a"
-}

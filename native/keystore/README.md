@@ -355,7 +355,7 @@ CTS test, feature claim or skip condition was changed.
 
 ## Encoded core module and isolated package
 
-`scripts/api29/build-keystore-core-compat-vm.py` now produces the opt-in JKS/BKS
+`scripts/runtime/build-keystore-core-compat-vm.py` now produces the opt-in JKS/BKS
 module from verified core/class inputs. The normal hidden-API encoder retains
 all existing member/access/native flags; three JKS override/bridge methods and
 one genuine D8 AtomicReference CAS helper are implementation-private. Exactly
@@ -364,7 +364,7 @@ The original29-method KeyStoreTest passes again with the actual new ART library
 and all10 new `.art` mappings verified. The earlier VM driver that fell back to
 DEX because it supplied an ISA-suffixed image path remains a separate result.
 
-`scripts/api29/package-keystore-core-overlay.py` packages only that source-owned
+`scripts/runtime/package-keystore-core-overlay.py` packages only that source-owned
 core module and matching boot over the verified property194-v2 artifact. It
 checks the original encoded inputs, exact added members, all existing hidden
 flags/native declarations, source hashes and every boot image. The v2 package

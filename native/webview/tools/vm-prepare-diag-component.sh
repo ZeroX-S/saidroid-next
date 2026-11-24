@@ -7,7 +7,7 @@ set -eu
 REPO=/media/psf/Home/WorkSpace/saidroid-next
 COMP=/var/tmp/saidroid-next-api29-component-webview-diag
 rm -rf "$COMP"
-python3 "$REPO/scripts/api29/package-component.py" \
+python3 "$REPO/scripts/runtime/package-component.py" \
     "$REPO/build/codex-api29/inputs" \
     /var/tmp/saidroid-next-api29-framework-20261027-r6 \
     /var/tmp/saidroid-next-api29-core-20261025-r10 \

@@ -3,7 +3,7 @@
 #include <pulse/pulseaudio.h>
 #include <chrono>
 #include <thread>
-#include "../../scripts/api29/audio-connection-compat/source/audio-connection.hpp"
+#include "audio-connection.hpp"
 
 namespace {
 struct Query {
@@ -167,23 +167,40 @@ static jint connection_state(JNIEnv *env, jclass, jint device, jstring address) 
 }
 
 static jclass audio_class;
-static jint ports(JNIEnv*e,jclass,jobject list,jintArray gen){return e->CallStaticIntMethod(audio_class,e->GetStaticMethodID(audio_class,"listPorts","(Ljava/util/ArrayList;[I)I"),list,gen);}
-static jint patches(JNIEnv*e,jclass,jobject list,jintArray gen){return e->CallStaticIntMethod(audio_class,e->GetStaticMethodID(audio_class,"listPatches","(Ljava/util/ArrayList;[I)I"),list,gen);}
+static jmethodID ports_method, patches_method, stream_method, mic_method, primary_rate_method, primary_frames_method, events_method;
+static jint ports(JNIEnv*e,jclass,jobject list,jintArray gen){
+ if(!ports_method)ports_method=e->GetStaticMethodID(audio_class,"listPorts","(Ljava/util/ArrayList;[I)I");
+ return e->CallStaticIntMethod(audio_class,ports_method,list,gen);
+}
+static jint patches(JNIEnv*e,jclass,jobject list,jintArray gen){
+ if(!patches_method)patches_method=e->GetStaticMethodID(audio_class,"listPatches","(Ljava/util/ArrayList;[I)I");
+ return e->CallStaticIntMethod(audio_class,patches_method,list,gen);
+}
 static jint fcc(JNIEnv*,jclass){return 8;}
-static jboolean stream(JNIEnv*e,jclass,jint id,jint ms){return e->CallStaticBooleanMethod(audio_class,e->GetStaticMethodID(audio_class,"streamActive","(II)Z"),id,ms);}
-static jboolean mic(JNIEnv*e,jclass){return e->CallStaticBooleanMethod(audio_class,e->GetStaticMethodID(audio_class,"microphoneMuted","()Z"));}
+static jboolean stream(JNIEnv*e,jclass,jint id,jint ms){
+ if(!stream_method)stream_method=e->GetStaticMethodID(audio_class,"streamActive","(II)Z");
+ return e->CallStaticBooleanMethod(audio_class,stream_method,id,ms);
+}
+static jboolean mic(JNIEnv*e,jclass){
+ if(!mic_method)mic_method=e->GetStaticMethodID(audio_class,"microphoneMuted","()Z");
+ return e->CallStaticBooleanMethod(audio_class,mic_method);
+}
 static jint primary_rate(JNIEnv*env,jclass){
- jmethodID getter=env->GetStaticMethodID(audio_class,"primaryOutputSamplingRate","()I");
- return env->CallStaticIntMethod(audio_class,getter);
+ if(!primary_rate_method)primary_rate_method=env->GetStaticMethodID(audio_class,"primaryOutputSamplingRate","()I");
+ return env->CallStaticIntMethod(audio_class,primary_rate_method);
 }
 static jint primary_frames(JNIEnv*env,jclass){
- jmethodID getter=env->GetStaticMethodID(audio_class,"primaryOutputFrameCount","()I");
- return env->CallStaticIntMethod(audio_class,getter);
+ if(!primary_frames_method)primary_frames_method=env->GetStaticMethodID(audio_class,"primaryOutputFrameCount","()I");
+ return env->CallStaticIntMethod(audio_class,primary_frames_method);
 }
-static void events(JNIEnv*e,jobject,jobject ref){e->CallStaticVoidMethod(audio_class,e->GetStaticMethodID(audio_class,"setupEvents","(Ljava/lang/Object;)V"),ref);}
+static void events(JNIEnv*e,jobject,jobject ref){
+ if(!events_method)events_method=e->GetStaticMethodID(audio_class,"setupEvents","(Ljava/lang/Object;)V");
+ e->CallStaticVoidMethod(audio_class,events_method,ref);
+}
 static void finalize_events(JNIEnv*,jobject){} // weak-owner polling has no native allocation
 extern "C" JNIEXPORT void JNICALL Java_SdAudio_nativeInstall(JNIEnv*e,jclass c,jclass channel_owner){
  audio_class=(jclass)e->NewGlobalRef(c);
+ ports_method=patches_method=stream_method=mic_method=primary_rate_method=primary_frames_method=events_method=nullptr;
  JNINativeMethod channels[]={{(char*)"native_get_FCC_8",(char*)"()I",(void*)fcc}};
  if(e->RegisterNatives(channel_owner,channels,1)<0)return;
  jclass audio_system=e->FindClass("android/media/AudioSystem");

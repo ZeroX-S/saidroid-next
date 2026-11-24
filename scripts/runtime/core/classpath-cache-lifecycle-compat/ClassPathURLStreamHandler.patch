@@ -1,0 +1,108 @@
+--- scripts/runtime/core/classpath-resource-compat/libcore/io/ClassPathURLStreamHandler.java
++++ scripts/runtime/core/classpath-cache-lifecycle-compat/libcore/io/ClassPathURLStreamHandler.java
+@@ -44,6 +44,28 @@
+   private final JarFile jarFile;
+   private final String scopedJarName;
+   private volatile boolean scopedClosed;
++  final ScopedArchiveCache scopedCache;
++  private final sun.misc.Cleaner scopedCacheCleaner;
++
++  /** Holds no handler/URL/loader reference; reclaiming its owner closes the real archive. */
++  private static final class ScopedArchiveCache implements Runnable {
++    ScopedArchiveCache() {}
++    private JarFile archive;
++    private boolean closed;
++    synchronized JarFile acquire(String name) throws IOException {
++      if (closed) throw new IOException("Class path archive owner closed");
++      if (archive == null) archive = new JarFile(name);
++      return archive;
++    }
++    @Override public synchronized void run() {
++      closed = true;
++      if (archive != null) {
++        try { archive.close(); }
++        catch (IOException failure) { System.logW("Could not close class path archive", failure); }
++        finally { archive = null; }
++      }
++    }
++  }
+ 
+   public ClassPathURLStreamHandler(String jarFileName) throws IOException {
+     this(jarFileName, false);
+@@ -52,6 +74,8 @@
+   /** A classloader-owned handler may keep metadata only and close each real archive after use. */
+   public ClassPathURLStreamHandler(String jarFileName, boolean scopedResources) throws IOException {
+     scopedJarName = scopedResources ? jarFileName : null;
++    scopedCache = scopedResources ? new ScopedArchiveCache() : null;
++    scopedCacheCleaner = scopedResources ? sun.misc.Cleaner.create(this, scopedCache) : null;
+     if (scopedResources) {
+       try (JarFile validation = new JarFile(jarFileName)) { validation.size(); }
+       jarFile = null;
+@@ -113,7 +137,10 @@
+ 
+   /** Used from tests to indicate this stream handler is finished with. */
+   public void close() throws IOException {
+-    if (scopedJarName != null) scopedClosed = true;
++    if (scopedJarName != null) {
++      scopedClosed = true;
++      scopedCacheCleaner.clean();
++    }
+     else jarFile.close();
+   }
+ 
+@@ -243,17 +270,20 @@
+       return -1;
+     }
+   }
+-  /** Each connection owns its real archive; stream close releases it even when caches are enabled. */
++  /** Explicit cached connections share the owner archive; uncached streams own their archive. */
+   private final class ScopedClassPathURLConnection extends JarURLConnection {
+     private JarFile archive;
+     private java.util.jar.JarEntry entry;
+     private InputStream input;
+     private boolean closed;
++    private boolean useCachedArchive;
++    boolean cachedArchive() { return useCachedArchive; }
+     ScopedClassPathURLConnection(URL url) throws MalformedURLException { super(url); }
+     @Override public synchronized void connect() throws IOException {
+       if (closed || scopedClosed) throw new IllegalStateException("Class path resource closed");
+       if (connected) return;
+-      JarFile candidate = new JarFile(scopedJarName);
++      useCachedArchive = getUseCaches();
++      JarFile candidate = useCachedArchive ? scopedCache.acquire(scopedJarName) : new JarFile(scopedJarName);
+       try {
+         ZipEntry found = findEntryWithDirectoryFallback(candidate, getEntryName());
+         if (found == null) throw new FileNotFoundException("Missing class path resource: " + getEntryName());
+@@ -261,7 +291,7 @@
+         archive = candidate;
+         connected = true;
+       } finally {
+-        if (!connected) candidate.close();
++        if (!connected && !useCachedArchive) candidate.close();
+       }
+     }
+     @Override public synchronized JarFile getJarFile() throws IOException { connect(); return archive; }
+@@ -274,15 +304,19 @@
+           @Override public void close() throws IOException {
+             synchronized (ScopedClassPathURLConnection.this) {
+               if (closed) return;
+-              closed = true;
+-              try { super.close(); } finally { archive.close(); }
++              try { super.close(); }
++              finally {
++                if (!cachedArchive()) { closed = true; archive.close(); }
++              }
+             }
+           }
+         };
+         return input;
+       } catch (IOException | RuntimeException | Error failure) {
+-        closed = true;
+-        try { archive.close(); } catch (IOException closeFailure) { failure.addSuppressed(closeFailure); }
++        if (!useCachedArchive) {
++          closed = true;
++          try { archive.close(); } catch (IOException closeFailure) { failure.addSuppressed(closeFailure); }
++        }
+         throw failure;
+       }
+     }

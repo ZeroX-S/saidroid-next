@@ -57,7 +57,7 @@ SAILDROID_DISPLAY_HEIGHT=2340
 
 Android 9（API 28）底包上 `libsdhost29.so` 会把 ART 自带的 `libjavacore.so`/`libopenjdk*.so` 交给 glibc 加载，以匹配随包发布的 Java 核心。WebView 的 Qt/WPE 宿主视口上限为宽 2160、高 4096（RGBA 帧预算 33.75 MiB），超限时按比例缩放并换算触摸坐标。
 
-机型/厂商等公开身份由 `scripts/api29/capture-hardware-identity-phone.py` 在目标机抓取，打包时经 `package-component.py --hardware-profile` 写入组件 `build.prop`（端口别名登记在 `scripts/api29/hardware-identity-aliases.json`）。
+机型/厂商等公开身份由 `scripts/runtime/capture-hardware-identity-phone.py` 在目标机抓取，打包时经 `package-component.py --hardware-profile` 写入组件 `build.prop`（端口别名登记在 `scripts/runtime/hardware-identity-aliases.json`）。
 
 ## 开发认证
 

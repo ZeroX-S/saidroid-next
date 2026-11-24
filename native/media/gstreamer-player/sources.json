@@ -2,7 +2,7 @@
   "schema": "saidroid-media-player-source-v1",
   "baseline_runtime": "r311 window IME fixes on r310",
   "baseline_audio": {
-    "path": "scripts/api29/service-lifecycle-compat/source/scripts/device/SdAudio.java",
+    "path": "scripts/runtime/service-lifecycle-compat/source/scripts/device/SdAudio.java",
     "sha256": "96ba85bd1c79a6f49e0e11b7e86b67e3d889e65373a33f5f62d0e359233bc4fe"
   },
   "baseline_texture": {

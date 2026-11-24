@@ -23,7 +23,7 @@
 
 ## 修复范围
 
-`scripts/api29/popup-touch-target-compat/` 只修复触摸目标选择：
+`scripts/runtime/popup-touch-target-compat/` 只修复触摸目标选择：
 
 - 使用既有绘制层次，从最上层向下选择可见、可触摸且有输入通道的窗口。
 - 非聚焦弹窗内的点击交给弹窗；弹窗外的点击可透传给下层。
@@ -41,7 +41,7 @@ ManifestReceiver 修复保留。
 ## 验证
 
 ```sh
-JAVA_HOME=/path/to/jdk python3 scripts/api29/tests/test-popup-touch-target.py
+JAVA_HOME=/path/to/jdk python3 scripts/runtime/tests/test-popup-touch-target.py
 ```
 
 测试编译真实 Java 参考方法，覆盖非聚焦弹窗、窗口内外边界、模态/非模态、

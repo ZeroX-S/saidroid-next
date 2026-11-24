@@ -24,7 +24,7 @@ Activity 创建。`doOnCreate()` 为准备文件预览内核，发送显式广�
 
 ## 修复
 
-`scripts/api29/explicit-broadcast-dispatch-compat/patch.py` 只恢复普通广播
+`scripts/runtime/explicit-broadcast-dispatch-compat/patch.py` 只恢复普通广播
 入口到既有 manifest-receiver 实现的连接，不吞异常或伪造接收成功。
 完整保留结果、附加数据、接收权限与用户，继续使用既有接收器声明、启用
 状态、包身份、权限和进程校验。显式广播不误投动态接收器；隐式广播仍走
@@ -36,7 +36,7 @@ Activity 创建。`doOnCreate()` 为准备文件预览内核，发送显式广�
 ## 验证与部署
 
 ```sh
-JAVA_HOME=/path/to/jdk python3 scripts/api29/tests/test-explicit-broadcast-dispatch.py
+JAVA_HOME=/path/to/jdk python3 scripts/runtime/tests/test-explicit-broadcast-dispatch.py
 ```
 
 测试覆盖窄范围 smali 修改、重复应用及未知布局拒绝，以及实际 Java 参考
@@ -76,7 +76,7 @@ HostApi 和 `libsdhostapi.so` 均没有这一接口，native launcher 也没有 
 同时检查接收端发现 `SdServiceEndpoint` 只支持事务 1–8，广播发送端却发送
 事务 9。若只补进程启动，这条显式广播仍然无法交给接收器。
 
-第二段修复位于 `scripts/api29/receiver-process-compat/`：
+第二段修复位于 `scripts/runtime/receiver-process-compat/`：
 
 - 验证 QQ 的 receiver 声明和进程，使用同 APK、同进程中已声明且启用的
  真实 Provider 启动该进程。QQ 的 FileProvider 在 `:tool`，正常 Application
@@ -93,7 +93,7 @@ HostApi 和 `libsdhostapi.so` 均没有这一接口，native launcher 也没有 
 仍明确拒绝，不声称新增了通用 native receiver 启动支持。
 
 ```sh
-JAVA_HOME=/path/to/jdk python3 scripts/api29/tests/test-receiver-process.py
+JAVA_HOME=/path/to/jdk python3 scripts/runtime/tests/test-receiver-process.py
 ```
 
 参考 Java 测试的 18 种情况及两个 smali 转换测试均通过；同时检查包、

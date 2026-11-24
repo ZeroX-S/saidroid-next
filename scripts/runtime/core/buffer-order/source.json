@@ -1,0 +1,11 @@
+{
+  "scope": "Restore AOSP29 DoubleBuffer signed-zero comparison via its existing comparison helper; no change to Double.compare or float ordering",
+  "baseline_source": "scripts/runtime/core/covariant/java/nio/DoubleBuffer.java",
+  "baseline_sha256": "bd3a152d822b5acaeabcad0793cae91355070450c4f223cd716ac22a43f1663e",
+  "source": "java/nio/DoubleBuffer.java",
+  "sha256": "a917929132c59571e308dd49ae95e0d46336eb92f8455f74286f2030b8ba4cc7",
+  "upstream": {
+    "url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/ojluni/src/main/java/java/nio/DoubleBuffer.java?format=TEXT",
+    "sha256": "304b8d68b7b41ee64aa35e1aff9f669f5d186658f04fb8da63d8a892b36de8a2"
+  }
+}
