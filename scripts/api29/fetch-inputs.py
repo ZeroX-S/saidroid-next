@@ -6,8 +6,8 @@ import argparse, hashlib, json, os, time
 
 ASSETS = {
  'arm64-v8a-28_r02.zip': ('https://dl.google.com/android/repository/sys-img/android/arm64-v8a-28_r02.zip', 'e209114dd0dfc2f4e0d328f5fd7367fec39ee1bd', 426760297),
- 'android-all-9-robolectric-4913185-2.jar': ('https://maven-central.storage-download.googleapis.com/maven2/org/robolectric/android-all/9-robolectric-4913185-2/android-all-9-robolectric-4913185-2.jar', None, None),
- 'android-all-10-robolectric-5803371.jar': ('https://maven-central.storage-download.googleapis.com/maven2/org/robolectric/android-all/10-robolectric-5803371/android-all-10-robolectric-5803371.jar', None, None),
+ 'android-all-9-robolectric-4913185-2.jar': ('https://maven-central.storage-download.googleapis.com/maven2/org/robolectric/android-all/9-robolectric-4913185-2/android-all-9-robolectric-4913185-2.jar', '92c6ca3712d7a06f76f70655ec81162ff372fb19', None),
+ 'android-all-10-robolectric-5803371.jar': ('https://maven-central.storage-download.googleapis.com/maven2/org/robolectric/android-all/10-robolectric-5803371/android-all-10-robolectric-5803371.jar', '873cbe64a7ac6fc2f9f5e2f6a24967fcc7a28ff8', None),
  'r8-8.3.37.jar': ('https://dl.google.com/dl/android/maven2/com/android/tools/r8/8.3.37/r8-8.3.37.jar', '6b023243a76124fb055d66b50e2e11db9b4d9b2b', None),
 }
 SHA256 = {
