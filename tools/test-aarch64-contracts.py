@@ -114,11 +114,23 @@ int main() {
 
 
 def main() -> None:
-    cxx = shutil.which('aarch64-linux-gnu-g++')
-    qemu = shutil.which('qemu-aarch64-static') or shutil.which('qemu-aarch64')
+    import platform
+
+    native_arm64 = platform.machine() == 'aarch64'
+    if native_arm64:
+        cxx = shutil.which('g++') or shutil.which('aarch64-linux-gnu-g++')
+        runner: list[str] = []
+        compile_extra: list[str] = []
+    else:
+        cxx = shutil.which('aarch64-linux-gnu-g++')
+        qemu = shutil.which('qemu-aarch64-static') or shutil.which('qemu-aarch64')
+        if not qemu:
+            raise SystemExit('ERROR: qemu-aarch64-static is required on non-aarch64 hosts')
+        runner = [qemu]
+        compile_extra = ['-static']
     readelf = shutil.which('aarch64-linux-gnu-readelf') or shutil.which('readelf')
-    if not cxx or not qemu:
-        raise SystemExit('ERROR: aarch64-linux-gnu-g++ and qemu-aarch64-static are required')
+    if not cxx:
+        raise SystemExit('ERROR: aarch64 C++ compiler is required')
 
     nv21_code = extract_nv21_helpers()
     source_code = AARCH64_HARNESS_TEMPLATE.replace('__NV21_HELPERS__', nv21_code)
@@ -129,7 +141,7 @@ def main() -> None:
         bin_path = work / 'aarch64-contracts'
         cpp_path.write_text(source_code, encoding='utf-8')
         subprocess.run([
-            cxx, '-std=c++17', '-O2', '-Wall', '-Wextra', '-static',
+            cxx, '-std=c++17', '-O2', '-Wall', '-Wextra', *compile_extra,
             f'-I{REPO}',
             str(cpp_path),
             '-o', str(bin_path),
@@ -137,7 +149,7 @@ def main() -> None:
         if readelf:
             hdr = subprocess.check_output([readelf, '-h', str(bin_path)], text=True)
             assert 'AArch64' in hdr, hdr
-        out = subprocess.check_output([qemu, str(bin_path)], text=True, timeout=15)
+        out = subprocess.check_output([*runner, str(bin_path)], text=True, timeout=15)
         assert 'AARCH64_CONTRACTS=PASS|' in out, out
         print(out.strip())
 

@@ -24,4 +24,15 @@ python3 tools/apply-third-party-patches.py
 - `scripts/compat/run-preflight.py`：汇总 API 28 公开 SDK 成员、JNI 字面量描述符、服务分派路由、ELF 依赖及打包 ART 契约检查（详见 `scripts/compat/README.md`）。
 - `scripts/packaging/README.md` / `scripts/packaging/build-runtime-rpm-vm.py --help`：版本隔离、核心链接器核对、清单封签、RPM 打包与激活流程。
 
+## macOS（Apple Silicon）原生 aarch64 Linux 容器编译环境
+
+在 Apple Silicon Mac（macOS 26+，已安装 Apple `container` CLI；也自动兼容 Docker / Podman）上，可直接用内置脚本基于 [`tools/Containerfile.dev`](../tools/Containerfile.dev) 拉起原生 `linux/arm64`（`aarch64`）Ubuntu 24.04 编译测试环境：
+
+```sh
+bash tools/macos-container-env.sh setup          # 构建 arm64 镜像、初始化子模块/补丁并拉取 API 28 依赖
+bash tools/macos-container-env.sh test           # 在原生 aarch64 Linux 容器内运行全套 38 项回归测试
+bash tools/macos-container-env.sh build-native   # 编译 API 28 runtime.jar 与原生 aarch64 .so 产物至 build/out-aarch64
+bash tools/macos-container-env.sh shell          # 进入容器交互式编译终端
+```
+
 商业 APK、设备数据、签名密钥和应用 AOT 缓存不在仓库中；签名相关脚本读取调用者自行准备的私有密钥目录。
