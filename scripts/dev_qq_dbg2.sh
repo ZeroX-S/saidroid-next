@@ -1,6 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-echo "=== SDBRIDGE 行与错误 ==="
-$SSH "grep -a 'SDBRIDGE\|Fatal\|Abort\|abort\|dlopen' /home/art/test/qq.log | grep -av 'packed reloc' | head -14"
-echo "=== 最后 6 行 ==="
-$SSH "grep -av 'packed reloc' /home/art/test/qq.log | tail -6 | cut -c1-200"

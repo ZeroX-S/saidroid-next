@@ -35,6 +35,9 @@ static void host_window_event(const char *event,int value){if(native_host_event)
 static jclass host_class,frame_class,surface_class,diagnostics_class;
 static jmethodID dump_method;
 static jmethodID frame_done,input_event,focus_event,visibility_event,closed_event,open_event;
+static jmethodID display_init_method,display_dispose_method,display_schedule_method;
+static jmethodID surface_lock_method,surface_unlock_method,surface_release_method;
+static jmethodID surface_valid_method,surface_behind_method,surface_width_method,surface_height_method,surface_allocate_method;
 static pthread_t thread;
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t ready_condition=PTHREAD_COND_INITIALIZER;
@@ -108,7 +111,7 @@ void sd_window_gpu_presented(void) {
     if(gpu_timing_enabled()&&gpu_present_count<10000)fprintf(stderr,"SDGPU=swap_done|sequence=%llu|time_ns=%lld\n",(unsigned long long)++gpu_present_count,(long long)gpu_clock_ns());
     if(gpu_parent_mapped||gpu_first_frame_pending){pthread_mutex_unlock(&lock);return;}
     gpu_first_frame_pending=1;pthread_mutex_unlock(&lock);
-    if(wake_fd>=0){uint64_t one=1;(void)write(wake_fd,&one,sizeof(one));}
+    wake_host();
 }
 void sd_window_gpu_z(int id,int z){
  pthread_mutex_lock(&lock);struct gpu_layer *p=gpu_layer(id);if(p&&p->z!=z){p->z=z;p->pending=1;}pthread_mutex_unlock(&lock);wake_host();
@@ -235,7 +238,7 @@ void sd_window_gpu_layout(int id,int x,int y,int w,int h,int visible) {
     pthread_mutex_lock(&lock);struct gpu_layer *p=gpu_layer(id);
     if(p){if(p->color_layer&&(p->width!=w||p->height!=h))p->color_pending=1;p->x=x;p->y=y;p->width=w;p->height=h;p->visible=p->retired?0:visible;p->pending=1;}
     pthread_mutex_unlock(&lock);
-    if(wake_fd>=0){uint64_t one=1;(void)write(wake_fd,&one,sizeof(one));}
+    wake_host();
 }
 void *sd_window_gpu_window(int id){
     if(!hardware_mode()||id<1||!surface)return NULL;
@@ -283,7 +286,17 @@ static void force_commit_init(void){
     if(!strcmp(v,"empty")){force_commit_mode=2;return;}
     force_commit_mode=0;
 }
-struct buffer{struct wl_buffer*object;uint32_t*pixels;size_t size;int busy;int ready;int reserved;int src_w,src_h;int64_t perf_sample;};
+struct buffer{
+    struct wl_buffer *object;
+    uint32_t *pixels;
+    size_t size;
+    int busy;
+    int ready;
+    int reserved;
+    int src_w, src_h;
+    int64_t perf_sample;
+    jobject direct_view;
+};
 static struct buffer cover_buffers[2];
 static uint32_t *cover_pixels;
 static int cover_width,cover_height,cover_pending;
@@ -702,13 +715,88 @@ static uint32_t buffer_format(void){
     if(!abgr_buffers())return WL_SHM_FORMAT_ARGB8888;
     return shm_has_abgr8888?WL_SHM_FORMAT_ABGR8888:WL_SHM_FORMAT_XBGR8888;
 }
-static void global(void*d,struct wl_registry*r,uint32_t name,const char*iface,uint32_t version){(void)d;if(!strcmp(iface,"wl_subcompositor")){subcompositor=wl_registry_bind(r,name,&wl_subcompositor_interface,1);return;}if(!strcmp(iface,"wl_compositor"))compositor=wl_registry_bind(r,name,&wl_compositor_interface,version<3?version:3);else if(!strcmp(iface,"wl_shm")){shm=wl_registry_bind(r,name,&wl_shm_interface,1);wl_shm_add_listener(shm,&shm_listener,NULL);}else if(!strcmp(iface,"wl_shell")){native_shell=wl_registry_bind(r,name,&wl_shell_interface,1);}else if(!strcmp(iface,"xdg_wm_base")){shell=wl_registry_bind(r,name,&xdg_wm_base_interface,1);xdg_wm_base_add_listener(shell,&shell_listener,NULL);}else if(!strcmp(iface,"qt_surface_extension")){surface_extension=wl_registry_bind(r,name,&qt_surface_extension_interface,1);legacy_subsurface_stack=getenv("SAILDROID_SUBSURFACE_NATIVE_STACK")==NULL;}else if(!strcmp(iface,"wl_seat")){seat=wl_registry_bind(r,name,&wl_seat_interface,version<3?version:3);wl_seat_add_listener(seat,&seat_listener,NULL);}}
+static void global(void *d, struct wl_registry *r, uint32_t name, const char *iface, uint32_t version) {
+    (void)d;
+    if (!strcmp(iface, "wl_subcompositor")) {
+        subcompositor = wl_registry_bind(r, name, &wl_subcompositor_interface, 1);
+        return;
+    }
+    if (!strcmp(iface, "wl_compositor")) {
+        compositor = wl_registry_bind(r, name, &wl_compositor_interface, version < 3 ? version : 3);
+    } else if (!strcmp(iface, "wl_shm")) {
+        shm = wl_registry_bind(r, name, &wl_shm_interface, 1);
+        wl_shm_add_listener(shm, &shm_listener, NULL);
+    } else if (!strcmp(iface, "wl_shell")) {
+        native_shell = wl_registry_bind(r, name, &wl_shell_interface, 1);
+    } else if (!strcmp(iface, "xdg_wm_base")) {
+        shell = wl_registry_bind(r, name, &xdg_wm_base_interface, 1);
+        xdg_wm_base_add_listener(shell, &shell_listener, NULL);
+    } else if (!strcmp(iface, "qt_surface_extension")) {
+        surface_extension = wl_registry_bind(r, name, &qt_surface_extension_interface, 1);
+        legacy_subsurface_stack = getenv("SAILDROID_SUBSURFACE_NATIVE_STACK") == NULL;
+    } else if (!strcmp(iface, "wl_seat")) {
+        seat = wl_registry_bind(r, name, &wl_seat_interface, version < 3 ? version : 3);
+        wl_seat_add_listener(seat, &seat_listener, NULL);
+    }
+}
 static void global_remove(void*d,struct wl_registry*r,uint32_t name){(void)d;(void)r;(void)name;}
 static const struct wl_registry_listener registry_listener={global,global_remove};
-static void buffer_released(void*data,struct wl_buffer*b){(void)b;struct buffer*slot=(struct buffer*)data;if(perf_on&&slot->perf_sample>=0&&(size_t)slot->perf_sample<perf_count)perf_samples[slot->perf_sample].release_ns=monotonic_ns();slot->busy=0;if(cover_pending&&(slot==&cover_buffers[0]||slot==&cover_buffers[1]))wake_host();}
+static void buffer_released(void *data, struct wl_buffer *b) {
+    (void)b;
+    struct buffer *slot = (struct buffer *)data;
+    if (perf_on && slot->perf_sample >= 0 && (size_t)slot->perf_sample < perf_count) {
+        perf_samples[slot->perf_sample].release_ns = monotonic_ns();
+    }
+    slot->busy = 0;
+    if (cover_pending && (slot == &cover_buffers[0] || slot == &cover_buffers[1])) {
+        wake_host();
+    }
+}
 static const struct wl_buffer_listener buffer_listener={buffer_released};
-static int allocate_buffer(struct buffer*b){int fd=memfd_create("saildroid-window",MFD_CLOEXEC);if(fd<0)return-1;b->size=(size_t)width*height*4;if(ftruncate(fd,b->size)<0){close(fd);return-1;}b->pixels=mmap(NULL,b->size,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);if(b->pixels==MAP_FAILED){close(fd);return-1;}struct wl_shm_pool*pool=wl_shm_create_pool(shm,fd,b->size);b->object=wl_shm_pool_create_buffer(pool,0,width,height,width*4,buffer_format());wl_shm_pool_destroy(pool);close(fd);wl_buffer_add_listener(b->object,&buffer_listener,b);for(size_t i=0;i<b->size/4;i++)b->pixels[i]=swizzle_if_needed(0xff101820);b->perf_sample=-1;return 0;}
-static void frame_complete(void*d,struct wl_callback*callback,uint32_t time){(void)d;(void)time;wl_callback_destroy(callback);frame_callback=NULL;int64_t now=monotonic_ns();if(perf_on){perf_frame_callbacks++;perf_last_vsync_ns=now;perf_commits_since_vsync=0;perf_frame_gap_ns=perf_prev_frame_ns?now-perf_prev_frame_ns:-1;perf_prev_frame_ns=now;}sd_native_display_frame(now);if(callbacks_available()){(*thread_env)->CallStaticVoidMethod(thread_env,host_class,frame_done,(jlong)now);check_callback();}}
+static int allocate_buffer(struct buffer *b) {
+    int fd = memfd_create("saildroid-window", MFD_CLOEXEC);
+    if (fd < 0) return -1;
+    b->size = (size_t)width * height * 4;
+    if (ftruncate(fd, b->size) < 0) {
+        close(fd);
+        return -1;
+    }
+    b->pixels = mmap(NULL, b->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (b->pixels == MAP_FAILED) {
+        close(fd);
+        return -1;
+    }
+    struct wl_shm_pool *pool = wl_shm_create_pool(shm, fd, b->size);
+    b->object = wl_shm_pool_create_buffer(pool, 0, width, height, width * 4, buffer_format());
+    wl_shm_pool_destroy(pool);
+    close(fd);
+    wl_buffer_add_listener(b->object, &buffer_listener, b);
+    for (size_t i = 0; i < b->size / 4; i++) {
+        b->pixels[i] = swizzle_if_needed(0xff101820);
+    }
+    b->perf_sample = -1;
+    b->direct_view = NULL;
+    return 0;
+}
+static void frame_complete(void *d, struct wl_callback *callback, uint32_t time) {
+    (void)d;
+    (void)time;
+    wl_callback_destroy(callback);
+    frame_callback = NULL;
+    int64_t now = monotonic_ns();
+    if (perf_on) {
+        perf_frame_callbacks++;
+        perf_last_vsync_ns = now;
+        perf_commits_since_vsync = 0;
+        perf_frame_gap_ns = perf_prev_frame_ns ? now - perf_prev_frame_ns : -1;
+        perf_prev_frame_ns = now;
+    }
+    sd_native_display_frame(now);
+    if (callbacks_available()) {
+        (*thread_env)->CallStaticVoidMethod(thread_env, host_class, frame_done, (jlong)now);
+        check_callback();
+    }
+}
 static const struct wl_callback_listener frame_listener={frame_complete};
 static void publish(void){
  if(callbacks_available()&&early_window==1){
@@ -791,8 +879,105 @@ static void publish(void){
   if(callbacks_available()){(*thread_env)->CallStaticVoidMethod(thread_env,host_class,frame_done,(jlong)timestamp);check_callback();}
  }
 }
-static void*run_window(void*unused){(void)unused;if(!early_window)callbacks_available();if(hardware_mode())sd_window_gpu_display();else display=wl_display_connect(NULL);if(!display){snprintf(failure,sizeof(failure),"Wayland connection failed: %s",strerror(errno));goto failed;}struct wl_registry*r=wl_display_get_registry(display);wl_registry_add_listener(r,&registry_listener,NULL);if(wl_display_roundtrip(display)<0||!compositor||!shm||(!shell&&!(surface_extension&&native_shell))){snprintf(failure,sizeof(failure),"Required Wayland globals unavailable");goto failed;}surface=wl_compositor_create_surface(compositor);if(surface_extension){extended_surface=qt_surface_extension_get_extended_surface(surface_extension,surface);qt_extended_surface_add_listener(extended_surface,&extended_listener,NULL);qt_extended_surface_set_content_orientation_mask(extended_surface,1);}create_window_role();wl_surface_commit(surface);while(!configured)if(wl_display_dispatch(display)<0)goto failed;if(prepare_display()<0)goto failed;if(hardware_mode()&&create_gpu_background()<0){snprintf(failure,sizeof(failure),"GPU host background failed");goto failed;}if(hardware_mode()){if(sd_hwui_background_startup(getenv("SAILDROID_STARTUP_ICON"),source_w,source_h)!=0){snprintf(failure,sizeof(failure),"GPU initial presentation failed");goto failed;}gpu_startup_mapped=1;early_gpu=early_window!=0;fprintf(stderr,"SDHOST=startup_mapped|pid=%d|surface=%p|android_frame=false\n",getpid(),(void*)surface);}
-int64_t alloc_started=monotonic_ns();if(!hardware_mode()){for(int i=0;i<buffer_count;i++)if(allocate_buffer(&buffers[i])){snprintf(failure,sizeof(failure),"SHM allocation failed");goto failed;}if(perf_on)perf_alloc_ns=monotonic_ns()-alloc_started;buffers[0].busy=1;wl_surface_attach(surface,buffers[0].object,0,0);wl_surface_damage(surface,0,0,width,height);wl_surface_commit(surface);}wl_display_flush(display);pthread_mutex_lock(&lock);ready=1;if(perf_on)perf_ready_ns=monotonic_ns();pthread_cond_broadcast(&ready_condition);pthread_mutex_unlock(&lock);fprintf(stderr,"SDWINDOW=ready|size=%dx%d|source=%dx%d\n",width,height,source_w,source_h);while(running){publish();while(wl_display_prepare_read(display)!=0)if(wl_display_dispatch_pending(display)<0)goto done;wl_display_flush(display);struct pollfd fds[]={{wl_display_get_fd(display),POLLIN,0},{wake_fd,POLLIN,0}};int wait_ms=1000;pthread_mutex_lock(&lock);if(hardware_mode()&&!gpu_parent_mapped&&want_frame){int64_t left=bootstrap_next_ns-monotonic_ns();wait_ms=left>0?(int)((left+999999)/1000000):0;}pthread_mutex_unlock(&lock);int n=poll(fds,2,wait_ms);if(n<0&&errno==EINTR){wl_display_cancel_read(display);continue;}if(n<0){wl_display_cancel_read(display);break;}if(fds[0].revents&POLLIN){if(wl_display_read_events(display)<0)break;}else wl_display_cancel_read(display);if(fds[1].revents&POLLIN){uint64_t value;while(read(wake_fd,&value,sizeof(value))>0){}}if(wl_display_dispatch_pending(display)<0)break;}done:
+static void *run_window(void *unused) {
+    (void)unused;
+    if (!early_window) callbacks_available();
+    if (hardware_mode()) {
+        sd_window_gpu_display();
+    } else {
+        display = wl_display_connect(NULL);
+    }
+    if (!display) {
+        snprintf(failure, sizeof(failure), "Wayland connection failed: %s", strerror(errno));
+        goto failed;
+    }
+    struct wl_registry *r = wl_display_get_registry(display);
+    wl_registry_add_listener(r, &registry_listener, NULL);
+    if (wl_display_roundtrip(display) < 0 || !compositor || !shm || (!shell && !(surface_extension && native_shell))) {
+        snprintf(failure, sizeof(failure), "Required Wayland globals unavailable");
+        goto failed;
+    }
+    surface = wl_compositor_create_surface(compositor);
+    if (surface_extension) {
+        extended_surface = qt_surface_extension_get_extended_surface(surface_extension, surface);
+        qt_extended_surface_add_listener(extended_surface, &extended_listener, NULL);
+        qt_extended_surface_set_content_orientation_mask(extended_surface, 1);
+    }
+    create_window_role();
+    wl_surface_commit(surface);
+    while (!configured) {
+        if (wl_display_dispatch(display) < 0) goto failed;
+    }
+    if (prepare_display() < 0) goto failed;
+    if (hardware_mode() && create_gpu_background() < 0) {
+        snprintf(failure, sizeof(failure), "GPU host background failed");
+        goto failed;
+    }
+    if (hardware_mode()) {
+        if (sd_hwui_background_startup(getenv("SAILDROID_STARTUP_ICON"), source_w, source_h) != 0) {
+            snprintf(failure, sizeof(failure), "GPU initial presentation failed");
+            goto failed;
+        }
+        gpu_startup_mapped = 1;
+        early_gpu = early_window != 0;
+        fprintf(stderr, "SDHOST=startup_mapped|pid=%d|surface=%p|android_frame=false\n", getpid(), (void *)surface);
+    }
+    int64_t alloc_started = monotonic_ns();
+    if (!hardware_mode()) {
+        for (int i = 0; i < buffer_count; i++) {
+            if (allocate_buffer(&buffers[i])) {
+                snprintf(failure, sizeof(failure), "SHM allocation failed");
+                goto failed;
+            }
+        }
+        if (perf_on) perf_alloc_ns = monotonic_ns() - alloc_started;
+        buffers[0].busy = 1;
+        wl_surface_attach(surface, buffers[0].object, 0, 0);
+        wl_surface_damage(surface, 0, 0, width, height);
+        wl_surface_commit(surface);
+    }
+    wl_display_flush(display);
+    pthread_mutex_lock(&lock);
+    ready = 1;
+    if (perf_on) perf_ready_ns = monotonic_ns();
+    pthread_cond_broadcast(&ready_condition);
+    pthread_mutex_unlock(&lock);
+    fprintf(stderr, "SDWINDOW=ready|size=%dx%d|source=%dx%d\n", width, height, source_w, source_h);
+    while (running) {
+        publish();
+        while (wl_display_prepare_read(display) != 0) {
+            if (wl_display_dispatch_pending(display) < 0) goto done;
+        }
+        wl_display_flush(display);
+        struct pollfd fds[] = {{wl_display_get_fd(display), POLLIN, 0}, {wake_fd, POLLIN, 0}};
+        int wait_ms = 1000;
+        pthread_mutex_lock(&lock);
+        if (hardware_mode() && !gpu_parent_mapped && want_frame) {
+            int64_t left = bootstrap_next_ns - monotonic_ns();
+            wait_ms = left > 0 ? (int)((left + 999999) / 1000000) : 0;
+        }
+        pthread_mutex_unlock(&lock);
+        int n = poll(fds, 2, wait_ms);
+        if (n < 0 && errno == EINTR) {
+            wl_display_cancel_read(display);
+            continue;
+        }
+        if (n < 0) {
+            wl_display_cancel_read(display);
+            break;
+        }
+        if (fds[0].revents & POLLIN) {
+            if (wl_display_read_events(display) < 0) break;
+        } else {
+            wl_display_cancel_read(display);
+        }
+        if (fds[1].revents & POLLIN) {
+            uint64_t value;
+            while (read(wake_fd, &value, sizeof(value)) > 0) {}
+        }
+        if (wl_display_dispatch_pending(display) < 0) break;
+    }
+done:
     perf_dump();
     sd_activation_stop();
     if (hardware_mode() && callbacks_available()) {
@@ -802,16 +987,98 @@ int64_t alloc_started=monotonic_ns();if(!hardware_mode()){for(int i=0;i<buffer_c
         (*vm)->DetachCurrentThread(vm);
         return NULL;
     }
-if(hardware_mode())sd_hwui_background_destroy();if(extended_surface){qt_extended_surface_destroy(extended_surface);extended_surface=NULL;}if(native_shell_surface){wl_shell_surface_destroy(native_shell_surface);native_shell_surface=NULL;}if(toplevel)xdg_toplevel_destroy(toplevel);if(xdg_surface)xdg_surface_destroy(xdg_surface);if(surface)wl_surface_destroy(surface);if(display){wl_display_flush(display);wl_display_disconnect(display);display=NULL;}if(callbacks_available()){(*thread_env)->CallStaticVoidMethod(thread_env,host_class,closed_event);check_callback();(*vm)->DetachCurrentThread(vm);}else _exit(0);return NULL;failed:perf_dump();pthread_mutex_lock(&lock);ready=-1;running=0;pthread_cond_broadcast(&ready_condition);pthread_mutex_unlock(&lock);if(display)wl_display_disconnect(display);if(thread_env)(*vm)->DetachCurrentThread(vm);return NULL;}
+    if (hardware_mode()) sd_hwui_background_destroy();
+    if (extended_surface) {
+        qt_extended_surface_destroy(extended_surface);
+        extended_surface = NULL;
+    }
+    if (native_shell_surface) {
+        wl_shell_surface_destroy(native_shell_surface);
+        native_shell_surface = NULL;
+    }
+    if (toplevel) xdg_toplevel_destroy(toplevel);
+    if (xdg_surface) xdg_surface_destroy(xdg_surface);
+    if (surface) wl_surface_destroy(surface);
+    if (display) {
+        wl_display_flush(display);
+        wl_display_disconnect(display);
+        display = NULL;
+    }
+    if (callbacks_available()) {
+        (*thread_env)->CallStaticVoidMethod(thread_env, host_class, closed_event);
+        check_callback();
+        (*vm)->DetachCurrentThread(vm);
+    } else {
+        _exit(0);
+    }
+    return NULL;
+failed:
+    perf_dump();
+    pthread_mutex_lock(&lock);
+    ready = -1;
+    running = 0;
+    pthread_cond_broadcast(&ready_condition);
+    pthread_mutex_unlock(&lock);
+    if (display) wl_display_disconnect(display);
+    if (thread_env) (*vm)->DetachCurrentThread(vm);
+    return NULL;
+}
 JNIEXPORT void JNICALL Java_SdWindowHost_nativeSelectHardware(JNIEnv*e,jclass c,jboolean enabled){
  (void)c;atomic_store(&selected_hardware,enabled?1:0);setenv("SAILDROID_HWUI",enabled?"1":"0",1);wake_host();
  pthread_mutex_lock(&lock);struct timespec deadline;clock_gettime(CLOCK_REALTIME,&deadline);deadline.tv_sec+=8;
  while(early_gpu&&!enabled){if(pthread_cond_timedwait(&ready_condition,&lock,&deadline)==ETIMEDOUT){pthread_mutex_unlock(&lock);(*e)->ThrowNew(e,(*e)->FindClass(e,"java/lang/IllegalStateException"),"Software backend handoff timed out");return;}}
  pthread_mutex_unlock(&lock);
 }
-static int start_window(const char *ts,const char *as,int w,int h){
- pthread_mutex_lock(&lock);if(running){pthread_mutex_unlock(&lock);return 1;}
- perf_start_ns=monotonic_ns();perf_on=getenv("SAILDROID_PERF")!=NULL;direct_shm=getenv("SAILDROID_DIRECT_SHM")!=NULL;direct_copy=getenv("SAILDROID_NO_DIRECT_COPY")==NULL;buffer_count=getenv("SAILDROID_NO_TRIPLE_BUFFER")!=NULL?2:3;if(perf_on&&!perf_samples){perf_samples=calloc(PERF_MAX_SAMPLES,sizeof(struct perf_sample));if(!perf_samples)perf_on=0;}if(perf_on)perf_open_stream();source_w=w;source_h=h;width=height=0;configured=0;snprintf(title,sizeof(title),"%s",ts);snprintf(app_id,sizeof(app_id),"%s",as);wake_fd=eventfd(0,EFD_NONBLOCK|EFD_CLOEXEC);if(wake_fd<0){pthread_mutex_unlock(&lock);return JNI_FALSE;}running=1;pthread_create(&thread,NULL,run_window,NULL);struct timespec deadline;clock_gettime(CLOCK_REALTIME,&deadline);deadline.tv_sec+=8;while(!ready){if(pthread_cond_timedwait(&ready_condition,&lock,&deadline)==ETIMEDOUT){running=0;break;}}int success=ready==1;pthread_mutex_unlock(&lock);if(success){if(early_window)host_window_event("mapped",1);const char *control=getenv("SAILDROID_CONTROL_SOCKET");if(control&&sd_activation_start(control,request_activation,request_close,request_open,request_dump)<0)fprintf(stderr,"SDWINDOW=activation_unavailable|errno=%d\n",errno);}if(!success)fprintf(stderr,"SDWINDOW=start_failed|%s\n",failure);return success;
+static int start_window(const char *ts, const char *as, int w, int h) {
+    pthread_mutex_lock(&lock);
+    if (running) {
+        pthread_mutex_unlock(&lock);
+        return 1;
+    }
+    perf_start_ns = monotonic_ns();
+    perf_on = getenv("SAILDROID_PERF") != NULL;
+    direct_shm = getenv("SAILDROID_DIRECT_SHM") != NULL;
+    direct_copy = getenv("SAILDROID_NO_DIRECT_COPY") == NULL;
+    buffer_count = getenv("SAILDROID_NO_TRIPLE_BUFFER") != NULL ? 2 : 3;
+    if (perf_on && !perf_samples) {
+        perf_samples = calloc(PERF_MAX_SAMPLES, sizeof(struct perf_sample));
+        if (!perf_samples) perf_on = 0;
+    }
+    if (perf_on) perf_open_stream();
+    source_w = w;
+    source_h = h;
+    width = height = 0;
+    configured = 0;
+    snprintf(title, sizeof(title), "%s", ts);
+    snprintf(app_id, sizeof(app_id), "%s", as);
+    wake_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (wake_fd < 0) {
+        pthread_mutex_unlock(&lock);
+        return JNI_FALSE;
+    }
+    running = 1;
+    pthread_create(&thread, NULL, run_window, NULL);
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += 8;
+    while (!ready) {
+        if (pthread_cond_timedwait(&ready_condition, &lock, &deadline) == ETIMEDOUT) {
+            running = 0;
+            break;
+        }
+    }
+    int success = ready == 1;
+    pthread_mutex_unlock(&lock);
+    if (success) {
+        if (early_window) host_window_event("mapped", 1);
+        const char *control = getenv("SAILDROID_CONTROL_SOCKET");
+        if (control && sd_activation_start(control, request_activation, request_close, request_open, request_dump) < 0) {
+            fprintf(stderr, "SDWINDOW=activation_unavailable|errno=%d\n", errno);
+        }
+    } else {
+        fprintf(stderr, "SDWINDOW=start_failed|%s\n", failure);
+    }
+    return success;
 }
 int sd_window_bootstrap(const char *name,const char *identity,int w,int h){early_window=1;return start_window(name,identity,w,h);}
 JNIEXPORT jboolean JNICALL Java_SdWindowHost_nativeStart(JNIEnv*e,jclass c,jstring t,jstring a,jint w,jint h){
@@ -882,7 +1149,13 @@ JNIEXPORT jobject JNICALL Java_SdWindowHost_nativeDirectAcquire(JNIEnv*e,jclass 
     if(target){target->reserved=1;target->src_w=source_w;target->src_h=source_h;direct_target=index;}
     pthread_mutex_unlock(&lock);
     if(!target)return NULL;
-    return (*e)->NewDirectByteBuffer(e,target->pixels,(jlong)target->size);
+    if(!target->direct_view){
+        jobject local=(*e)->NewDirectByteBuffer(e,target->pixels,(jlong)target->size);
+        if(!local)return NULL;
+        target->direct_view=(*e)->NewGlobalRef(e,local);
+        (*e)->DeleteLocalRef(e,local);
+    }
+    return target->direct_view;
 }
 JNIEXPORT jboolean JNICALL Java_SdWindowHost_nativeDirectCommit(JNIEnv*e,jclass c){
     (void)e;(void)c;
@@ -914,20 +1187,67 @@ JNIEXPORT jboolean JNICALL Java_SdWindowHost_nativeMoveTaskToBack(JNIEnv*e,jclas
  if(available){host_window_event("task-background",1);wake_host();}
  return available?JNI_TRUE:JNI_FALSE;
 }
-static jlong display_init(JNIEnv*e,jclass c,jobject weak,jobject queue,jint source){
-    (void)c;if(perf_on)perf_display_init_calls++;if(source!=0&&source!=1){(*e)->ThrowNew(e,(*e)->FindClass(e,"java/lang/IllegalArgumentException"),"Unknown display event source");return 0;}
-    return (*e)->CallStaticLongMethod(e,frame_class,(*e)->GetStaticMethodID(e,frame_class,"initialize","(Ljava/lang/ref/WeakReference;Landroid/os/MessageQueue;)J"),weak,queue);
+static jlong display_init(JNIEnv *e, jclass c, jobject weak, jobject queue, jint source) {
+    (void)c;
+    if (perf_on) perf_display_init_calls++;
+    if (source != 0 && source != 1) {
+        (*e)->ThrowNew(e, (*e)->FindClass(e, "java/lang/IllegalArgumentException"), "Unknown display event source");
+        return 0;
+    }
+    return (*e)->CallStaticLongMethod(e, frame_class, display_init_method, weak, queue);
 }
-static void display_dispose(JNIEnv*e,jclass c,jlong id){(void)c;(*e)->CallStaticVoidMethod(e,frame_class,(*e)->GetStaticMethodID(e,frame_class,"dispose","(J)V"),id);}
-static void display_schedule(JNIEnv*e,jclass c,jlong id){(void)c;if(perf_on)perf_display_schedule_calls++;(*e)->CallStaticVoidMethod(e,frame_class,(*e)->GetStaticMethodID(e,frame_class,"schedule","(J)V"),id);}
-static jlong surface_lock(JNIEnv*e,jclass c,jlong id,jobject canvas,jobject rect){(void)c;if(perf_on&&!perf_draw_start)perf_draw_start=monotonic_ns();jlong result=(*e)->CallStaticLongMethod(e,surface_class,(*e)->GetStaticMethodID(e,surface_class,"lock","(JLandroid/graphics/Canvas;Landroid/graphics/Rect;)J"),id,canvas,rect);if(perf_on)perf_lock_ret_ns=monotonic_ns();return result;}
-static void surface_unlock(JNIEnv*e,jclass c,jlong id,jobject canvas){(void)c;if(perf_on){int64_t begun=monotonic_ns();if(perf_draw_start){perf_draw_ns+=begun-perf_draw_start;perf_draws++;}perf_unlock_ns=begun;}(*e)->CallStaticVoidMethod(e,surface_class,(*e)->GetStaticMethodID(e,surface_class,"unlock","(JLandroid/graphics/Canvas;)V"),id,canvas);}
-static void surface_release(JNIEnv*e,jclass c,jlong id){(void)c;(*e)->CallStaticVoidMethod(e,surface_class,(*e)->GetStaticMethodID(e,surface_class,"release","(J)V"),id);}
-static jboolean surface_valid(JNIEnv*e,jclass c,jlong id){(void)c;return(*e)->CallStaticBooleanMethod(e,surface_class,(*e)->GetStaticMethodID(e,surface_class,"valid","(J)Z"),id);}
-static jboolean surface_behind(JNIEnv*e,jclass c,jlong id){(void)c;return(*e)->CallStaticBooleanMethod(e,surface_class,(*e)->GetStaticMethodID(e,surface_class,"consumerBehind","(J)Z"),id);}
-static jint surface_width(JNIEnv*e,jclass c,jlong id){(void)c;return(*e)->CallStaticIntMethod(e,surface_class,(*e)->GetStaticMethodID(e,surface_class,"width","(J)I"),id);}
-static jint surface_height(JNIEnv*e,jclass c,jlong id){(void)c;return(*e)->CallStaticIntMethod(e,surface_class,(*e)->GetStaticMethodID(e,surface_class,"height","(J)I"),id);}
-static void surface_allocate(JNIEnv*e,jclass c,jlong id){(void)c;(*e)->CallStaticVoidMethod(e,surface_class,(*e)->GetStaticMethodID(e,surface_class,"allocate","(J)V"),id);}
+static void display_dispose(JNIEnv *e, jclass c, jlong id) {
+    (void)c;
+    (*e)->CallStaticVoidMethod(e, frame_class, display_dispose_method, id);
+}
+static void display_schedule(JNIEnv *e, jclass c, jlong id) {
+    (void)c;
+    if (perf_on) perf_display_schedule_calls++;
+    (*e)->CallStaticVoidMethod(e, frame_class, display_schedule_method, id);
+}
+static jlong surface_lock(JNIEnv *e, jclass c, jlong id, jobject canvas, jobject rect) {
+    (void)c;
+    if (perf_on && !perf_draw_start) perf_draw_start = monotonic_ns();
+    jlong result = (*e)->CallStaticLongMethod(e, surface_class, surface_lock_method, id, canvas, rect);
+    if (perf_on) perf_lock_ret_ns = monotonic_ns();
+    return result;
+}
+static void surface_unlock(JNIEnv *e, jclass c, jlong id, jobject canvas) {
+    (void)c;
+    if (perf_on) {
+        int64_t begun = monotonic_ns();
+        if (perf_draw_start) {
+            perf_draw_ns += begun - perf_draw_start;
+            perf_draws++;
+        }
+        perf_unlock_ns = begun;
+    }
+    (*e)->CallStaticVoidMethod(e, surface_class, surface_unlock_method, id, canvas);
+}
+static void surface_release(JNIEnv *e, jclass c, jlong id) {
+    (void)c;
+    (*e)->CallStaticVoidMethod(e, surface_class, surface_release_method, id);
+}
+static jboolean surface_valid(JNIEnv *e, jclass c, jlong id) {
+    (void)c;
+    return (*e)->CallStaticBooleanMethod(e, surface_class, surface_valid_method, id);
+}
+static jboolean surface_behind(JNIEnv *e, jclass c, jlong id) {
+    (void)c;
+    return (*e)->CallStaticBooleanMethod(e, surface_class, surface_behind_method, id);
+}
+static jint surface_width(JNIEnv *e, jclass c, jlong id) {
+    (void)c;
+    return (*e)->CallStaticIntMethod(e, surface_class, surface_width_method, id);
+}
+static jint surface_height(JNIEnv *e, jclass c, jlong id) {
+    (void)c;
+    return (*e)->CallStaticIntMethod(e, surface_class, surface_height_method, id);
+}
+static void surface_allocate(JNIEnv *e, jclass c, jlong id) {
+    (void)c;
+    (*e)->CallStaticVoidMethod(e, surface_class, surface_allocate_method, id);
+}
 static jlong unsupported_texture(JNIEnv*e,jclass c,jobject texture){(void)c;(void)texture;(*e)->ThrowNew(e,(*e)->FindClass(e,"java/lang/UnsupportedOperationException"),"SurfaceTexture requires a native graphics producer");return 0;}
 static jlong unsupported_control(JNIEnv*e,jclass c,jlong value){(void)c;(void)value;(*e)->ThrowNew(e,(*e)->FindClass(e,"java/lang/UnsupportedOperationException"),"SurfaceControl is not a local window");return 0;}
 static jlong unsupported_read(JNIEnv*e,jclass c,jlong value,jobject p){(void)c;(void)value;(void)p;(*e)->ThrowNew(e,(*e)->FindClass(e,"java/lang/UnsupportedOperationException"),"Cross-process Surface parcels unavailable");return 0;}
@@ -936,7 +1256,86 @@ static jobject unsupported_egl_window(JNIEnv *e,jclass type,jobject display,jobj
     (void)type;(void)display;(void)config;(void)window;(void)attributes;(void)offset;
     (*e)->ThrowNew(e,(*e)->FindClass(e,"java/lang/UnsupportedOperationException"),"This raster Surface has no EGL native-window producer");return NULL;
 }
-JNIEXPORT void JNICALL Java_SdWindowHost_nativeInstall(JNIEnv*e,jclass c){host_class=(*e)->NewGlobalRef(e,c);diagnostics_class=(*e)->NewGlobalRef(e,(*e)->FindClass(e,"SdRuntimeDiagnostics"));dump_method=(*e)->GetStaticMethodID(e,diagnostics_class,"dumpThreads","()V");frame_class=(*e)->NewGlobalRef(e,(*e)->FindClass(e,"SdDisplayFrames"));surface_class=(*e)->NewGlobalRef(e,(*e)->FindClass(e,"SdSurfaceStore"));perf_compose_field=(*e)->GetStaticFieldID(e,surface_class,"composes","J");perf_erase_field=(*e)->GetStaticFieldID(e,surface_class,"composeEraseNs","J");perf_draw_field=(*e)->GetStaticFieldID(e,surface_class,"composeDrawNs","J");perf_pixels_field=(*e)->GetStaticFieldID(e,surface_class,"composePixelsNs","J");perf_present_java_field=(*e)->GetStaticFieldID(e,surface_class,"composePresentNs","J");perf_creq_field=(*e)->GetStaticFieldID(e,surface_class,"composeRequests","J");perf_cfall_field=(*e)->GetStaticFieldID(e,surface_class,"composeFallbacks","J");perf_fast_field=(*e)->GetStaticFieldID(e,surface_class,"fastPathFrames","J");perf_layers_field=(*e)->GetStaticFieldID(e,surface_class,"lastLayerCount","J");perf_layer_alpha_field=(*e)->GetStaticFieldID(e,surface_class,"lastLayerAlphaMilli","J");perf_layer_full_field=(*e)->GetStaticFieldID(e,surface_class,"lastLayerFull","J");perf_layer_ident_field=(*e)->GetStaticFieldID(e,surface_class,"lastLayerIdentity","J");perf_locks_field=(*e)->GetStaticFieldID(e,surface_class,"locks","J");perf_unlocks_field=(*e)->GetStaticFieldID(e,surface_class,"unlocks","J");perf_transactions_field=(*e)->GetStaticFieldID(e,surface_class,"draws","J");perf_direct_copies_field=(*e)->GetStaticFieldID(e,surface_class,"directCopies","J");perf_direct_misses_field=(*e)->GetStaticFieldID(e,surface_class,"directMisses","J");perf_direct_drops_field=(*e)->GetStaticFieldID(e,surface_class,"directDrops","J");perf_recoveries_field=(*e)->GetStaticFieldID(e,surface_class,"recoveries","J");sd_perf_fields_guard(e);frame_done=(*e)->GetStaticMethodID(e,c,"onNativeFrame","(J)V");input_event=(*e)->GetStaticMethodID(e,c,"onNativeInput","(IIFFJ)V");focus_event=(*e)->GetStaticMethodID(e,c,"onNativeFocus","(Z)V");closed_event=(*e)->GetStaticMethodID(e,c,"onNativeClosed","()V");visibility_event=(*e)->GetStaticMethodID(e,c,"onNativeVisibility","(I)V");open_event=(*e)->GetStaticMethodID(e,c,"onNativeOpenUri","(Ljava/lang/String;)Z");JNINativeMethod dm[]={{"nativeInit","(Ljava/lang/ref/WeakReference;Landroid/os/MessageQueue;I)J",display_init},{"nativeDispose","(J)V",display_dispose},{"nativeScheduleVsync","(J)V",display_schedule}};if((*e)->RegisterNatives(e,(*e)->FindClass(e,"android/view/DisplayEventReceiver"),dm,3)<0)return;JNINativeMethod sm[]={{"nativeLockCanvas","(JLandroid/graphics/Canvas;Landroid/graphics/Rect;)J",surface_lock},{"nativeUnlockCanvasAndPost","(JLandroid/graphics/Canvas;)V",surface_unlock},{"nativeRelease","(J)V",surface_release},{"nativeIsValid","(J)Z",surface_valid},{"nativeIsConsumerRunningBehind","(J)Z",surface_behind},{"nativeAllocateBuffers","(J)V",surface_allocate},{"nativeGetWidth","(J)I",surface_width},{"nativeGetHeight","(J)I",surface_height},{"nativeCreateFromSurfaceTexture","(Landroid/graphics/SurfaceTexture;)J",unsupported_texture},{"nativeCreateFromSurfaceControl","(J)J",unsupported_control},{"nativeReadFromParcel","(JLandroid/os/Parcel;)J",unsupported_read},{"nativeWriteToParcel","(JLandroid/os/Parcel;)V",unsupported_write}};if((*e)->RegisterNatives(e,(*e)->FindClass(e,"android/view/Surface"),sm,sizeof(sm)/sizeof(sm[0]))<0)return;JNINativeMethod ew[]={{"_eglCreateWindowSurface","(Landroid/opengl/EGLDisplay;Landroid/opengl/EGLConfig;Ljava/lang/Object;[II)Landroid/opengl/EGLSurface;",unsupported_egl_window},{"_eglCreateWindowSurfaceTexture","(Landroid/opengl/EGLDisplay;Landroid/opengl/EGLConfig;Ljava/lang/Object;[II)Landroid/opengl/EGLSurface;",unsupported_egl_window}};if((*e)->RegisterNatives(e,(*e)->FindClass(e,"android/opengl/EGL14"),ew,2)<0)return;sd_control_install(e);}
+JNIEXPORT void JNICALL Java_SdWindowHost_nativeInstall(JNIEnv *e, jclass c) {
+    host_class = (*e)->NewGlobalRef(e, c);
+    diagnostics_class = (*e)->NewGlobalRef(e, (*e)->FindClass(e, "SdRuntimeDiagnostics"));
+    if (!diagnostics_class || (*e)->ExceptionCheck(e)) return;
+    dump_method = (*e)->GetStaticMethodID(e, diagnostics_class, "dumpThreads", "()V");
+    if ((*e)->ExceptionCheck(e)) return;
+    frame_class = (*e)->NewGlobalRef(e, (*e)->FindClass(e, "SdDisplayFrames"));
+    if (!frame_class || (*e)->ExceptionCheck(e)) return;
+    display_init_method = (*e)->GetStaticMethodID(e, frame_class, "initialize", "(Ljava/lang/ref/WeakReference;Landroid/os/MessageQueue;)J");
+    display_dispose_method = (*e)->GetStaticMethodID(e, frame_class, "dispose", "(J)V");
+    display_schedule_method = (*e)->GetStaticMethodID(e, frame_class, "schedule", "(J)V");
+    if ((*e)->ExceptionCheck(e)) return;
+    surface_class = (*e)->NewGlobalRef(e, (*e)->FindClass(e, "SdSurfaceStore"));
+    if (!surface_class || (*e)->ExceptionCheck(e)) return;
+    surface_lock_method = (*e)->GetStaticMethodID(e, surface_class, "lock", "(JLandroid/graphics/Canvas;Landroid/graphics/Rect;)J");
+    surface_unlock_method = (*e)->GetStaticMethodID(e, surface_class, "unlock", "(JLandroid/graphics/Canvas;)V");
+    surface_release_method = (*e)->GetStaticMethodID(e, surface_class, "release", "(J)V");
+    surface_valid_method = (*e)->GetStaticMethodID(e, surface_class, "valid", "(J)Z");
+    surface_behind_method = (*e)->GetStaticMethodID(e, surface_class, "consumerBehind", "(J)Z");
+    surface_width_method = (*e)->GetStaticMethodID(e, surface_class, "width", "(J)I");
+    surface_height_method = (*e)->GetStaticMethodID(e, surface_class, "height", "(J)I");
+    surface_allocate_method = (*e)->GetStaticMethodID(e, surface_class, "allocate", "(J)V");
+    if ((*e)->ExceptionCheck(e)) return;
+    perf_compose_field = (*e)->GetStaticFieldID(e, surface_class, "composes", "J");
+    perf_erase_field = (*e)->GetStaticFieldID(e, surface_class, "composeEraseNs", "J");
+    perf_draw_field = (*e)->GetStaticFieldID(e, surface_class, "composeDrawNs", "J");
+    perf_pixels_field = (*e)->GetStaticFieldID(e, surface_class, "composePixelsNs", "J");
+    perf_present_java_field = (*e)->GetStaticFieldID(e, surface_class, "composePresentNs", "J");
+    perf_creq_field = (*e)->GetStaticFieldID(e, surface_class, "composeRequests", "J");
+    perf_cfall_field = (*e)->GetStaticFieldID(e, surface_class, "composeFallbacks", "J");
+    perf_fast_field = (*e)->GetStaticFieldID(e, surface_class, "fastPathFrames", "J");
+    perf_layers_field = (*e)->GetStaticFieldID(e, surface_class, "lastLayerCount", "J");
+    perf_layer_alpha_field = (*e)->GetStaticFieldID(e, surface_class, "lastLayerAlphaMilli", "J");
+    perf_layer_full_field = (*e)->GetStaticFieldID(e, surface_class, "lastLayerFull", "J");
+    perf_layer_ident_field = (*e)->GetStaticFieldID(e, surface_class, "lastLayerIdentity", "J");
+    perf_locks_field = (*e)->GetStaticFieldID(e, surface_class, "locks", "J");
+    perf_unlocks_field = (*e)->GetStaticFieldID(e, surface_class, "unlocks", "J");
+    perf_transactions_field = (*e)->GetStaticFieldID(e, surface_class, "draws", "J");
+    perf_direct_copies_field = (*e)->GetStaticFieldID(e, surface_class, "directCopies", "J");
+    perf_direct_misses_field = (*e)->GetStaticFieldID(e, surface_class, "directMisses", "J");
+    perf_direct_drops_field = (*e)->GetStaticFieldID(e, surface_class, "directDrops", "J");
+    perf_recoveries_field = (*e)->GetStaticFieldID(e, surface_class, "recoveries", "J");
+    sd_perf_fields_guard(e);
+    frame_done = (*e)->GetStaticMethodID(e, c, "onNativeFrame", "(J)V");
+    input_event = (*e)->GetStaticMethodID(e, c, "onNativeInput", "(IIFFJ)V");
+    focus_event = (*e)->GetStaticMethodID(e, c, "onNativeFocus", "(Z)V");
+    closed_event = (*e)->GetStaticMethodID(e, c, "onNativeClosed", "()V");
+    visibility_event = (*e)->GetStaticMethodID(e, c, "onNativeVisibility", "(I)V");
+    open_event = (*e)->GetStaticMethodID(e, c, "onNativeOpenUri", "(Ljava/lang/String;)Z");
+    JNINativeMethod dm[] = {
+        {"nativeInit", "(Ljava/lang/ref/WeakReference;Landroid/os/MessageQueue;I)J", display_init},
+        {"nativeDispose", "(J)V", display_dispose},
+        {"nativeScheduleVsync", "(J)V", display_schedule},
+    };
+    jclass der_cls = (*e)->FindClass(e, "android/view/DisplayEventReceiver");
+    if (!der_cls || (*e)->RegisterNatives(e, der_cls, dm, 3) < 0) return;
+    JNINativeMethod sm[] = {
+        {"nativeLockCanvas", "(JLandroid/graphics/Canvas;Landroid/graphics/Rect;)J", surface_lock},
+        {"nativeUnlockCanvasAndPost", "(JLandroid/graphics/Canvas;)V", surface_unlock},
+        {"nativeRelease", "(J)V", surface_release},
+        {"nativeIsValid", "(J)Z", surface_valid},
+        {"nativeIsConsumerRunningBehind", "(J)Z", surface_behind},
+        {"nativeAllocateBuffers", "(J)V", surface_allocate},
+        {"nativeGetWidth", "(J)I", surface_width},
+        {"nativeGetHeight", "(J)I", surface_height},
+        {"nativeCreateFromSurfaceTexture", "(Landroid/graphics/SurfaceTexture;)J", unsupported_texture},
+        {"nativeCreateFromSurfaceControl", "(J)J", unsupported_control},
+        {"nativeReadFromParcel", "(JLandroid/os/Parcel;)J", unsupported_read},
+        {"nativeWriteToParcel", "(JLandroid/os/Parcel;)V", unsupported_write},
+    };
+    jclass surf_cls = (*e)->FindClass(e, "android/view/Surface");
+    if (!surf_cls || (*e)->RegisterNatives(e, surf_cls, sm, sizeof(sm) / sizeof(sm[0])) < 0) return;
+    JNINativeMethod ew[] = {
+        {"_eglCreateWindowSurface", "(Landroid/opengl/EGLDisplay;Landroid/opengl/EGLConfig;Ljava/lang/Object;[II)Landroid/opengl/EGLSurface;", unsupported_egl_window},
+        {"_eglCreateWindowSurfaceTexture", "(Landroid/opengl/EGLDisplay;Landroid/opengl/EGLConfig;Ljava/lang/Object;[II)Landroid/opengl/EGLSurface;", unsupported_egl_window},
+    };
+    jclass egl_cls = (*e)->FindClass(e, "android/opengl/EGL14");
+    if (!egl_cls || (*e)->RegisterNatives(e, egl_cls, ew, 2) < 0) return;
+    sd_control_install(e);
+}
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM*v,void*r){(void)r;vm=v;return JNI_VERSION_1_6;}
 /* The native per-application host loads this library before ART so it can
  * create the persistent Wayland surface. ART may later find the library

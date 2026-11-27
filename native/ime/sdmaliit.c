@@ -76,7 +76,8 @@ static void *run_peer(void *unused){
     (void)unused;if((*vm)->AttachCurrentThreadAsDaemon(vm,(void**)&worker_env,NULL)!=JNI_OK)return NULL;
     GError *error=NULL;GMainContext *owned=g_main_context_new();g_main_context_push_thread_default(owned);
     const char *runtime=g_getenv("XDG_RUNTIME_DIR");gchar *address=runtime?g_strdup_printf("unix:path=%s/maliit-server/dbus-socket",runtime):NULL;
-    if(address)connection=g_dbus_connection_new_for_address_sync(address,G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT,NULL,NULL,&error);g_free(address);
+    if(address)connection=g_dbus_connection_new_for_address_sync(address,G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT,NULL,NULL,&error);
+    g_free(address);
     GDBusNodeInfo *node=NULL;guint object=0;
     if(connection){
         g_dbus_connection_set_exit_on_close(connection,FALSE);node=g_dbus_node_info_new_for_xml(maliit_client_xml,&error);
@@ -92,7 +93,8 @@ static void *run_peer(void *unused){
     if(error){fprintf(stderr,"SDIME=connection_unavailable|code=%d\n",error->code);g_error_free(error);}
     emit(0,NULL,0,0,0,0);
     if(connection){g_dbus_connection_close_sync(connection,NULL,NULL);g_object_unref(connection);connection=NULL;}
-    if(node)g_dbus_node_info_unref(node);g_free(surrounding);surrounding=NULL;pending_resets=0;
+    if(node)g_dbus_node_info_unref(node);
+    g_free(surrounding);surrounding=NULL;pending_resets=0;
     pthread_mutex_lock(&state_lock);started=0;pthread_mutex_unlock(&state_lock);
     g_main_context_pop_thread_default(owned);g_main_context_unref(owned);(*vm)->DetachCurrentThread(vm);return NULL;
 }

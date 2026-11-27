@@ -1,8 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@bonito"
-echo "=== 截图工具 ==="
-$SSH "ls /usr/bin /usr/local/bin 2>/dev/null | grep -iE 'shot|grab|grim|scrot' | head -10"
-echo "=== framebuffer / drm ==="
-$SSH "ls -l /dev/fb* /dev/dri/* 2>&1 | head -6"
-echo "=== lipstick dbus 截图接口 ==="
-$SSH "dbus-send --system --print-reply --dest=org.nemomobile.lipstick /org/nemomobile/lipstick org.freedesktop.DBus.Introspectable.Introspect 2>&1 | grep -i 'screenshot\|method name' | head -10"

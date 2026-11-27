@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory(prefix="saildroid-mallinfo-") as temporary:
     source.write_text(probe)
     command = ["gcc", "-O2", "-Wall", "-Wextra", "-ffunction-sections", "-fdata-sections",
                "-I" + str(jdk / "include"), "-I" + str(jdk / "include/linux"),
-               str(repository / "native/compat/api29-host.c"), str(source),
+               str(repository / "native/compat/runtime-host.c"), str(source),
                "-Wl,--gc-sections", "-ldl", "-pthread", "-o", str(folder / "probe")]
     subprocess.run(command, check=True, timeout=60)
     subprocess.run([str(folder / "probe")], check=True, timeout=10)

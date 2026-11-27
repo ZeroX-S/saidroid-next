@@ -81,7 +81,7 @@ int main(int argc,char **argv){
  assert(!close_guest(h)&&!mapped("checked.so"));puts("PRIVATE_CFI_OWNER_CONTRACT=PASS");return 0;
 }
 ''')
- subprocess.run(['gcc','-O2','-Wall','-Wextra','-Werror','-rdynamic',str(source),str(repo/'native/compat/api29-cfi.c'),'-o',str(out/'runner'),'-ldl','-pthread'],check=True)
+ subprocess.run(['gcc','-O2','-Wall','-Wextra','-Werror','-rdynamic',str(source),str(repo/'native/compat/runtime-cfi.c'),'-o',str(out/'runner'),'-ldl','-pthread'],check=True)
  env=dict(os.environ,SAILDROID_STRICT_LINK='1',BIONIC_TRANSLATION_CONFIG_DIR=str(out/'config'));rows=[]
  for mode,expected in [('valid',0),('data-target',0),('unchecked-owner',0),('reload',0),('wrong-type',-6),('unmapped',-6),('gap',-6),('after-close',-6)]:
   run=subprocess.run([str(out/'runner'),str(a.linker),str(out),mode,str(gap)],env=env,capture_output=True,text=True,timeout=15)

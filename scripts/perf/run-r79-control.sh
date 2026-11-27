@@ -16,7 +16,7 @@ trap cleanup EXIT
 scripts/devlock.sh acquire 600 sd-runtime || { echo "WINDOW_REFUSED reason=lock"; exit 2; }
 python3 scripts/perf/close-owned-vm.py || exit 4
 sshpass -e ssh -o StrictHostKeyChecking=no root@bonito 'rm -rf /home/art/test/api29-deploy-r79c' || exit 5
-python3 scripts/api29/deploy-component.py /var/tmp/saidroid-next-api29-component-r79 r79c || exit 5
+python3 scripts/runtime/deploy-component.py /var/tmp/saidroid-next-api29-component-r79 r79c || exit 5
 readlink /home/art/api29-root
 python3 scripts/perf/install-scroll-vm.py r79-probe4 || exit 6
 python3 scripts/perf/run-matrix-vm.py r79c --only scroll-triple-legacy --only scroll-copy-touch

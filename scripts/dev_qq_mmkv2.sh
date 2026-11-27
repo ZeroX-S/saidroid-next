@@ -1,5 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-$SSH "grep -a 'QP\[19\]\|QP\[20\]\|QP\[21\]\|Runtime.loadLibrary\|setLoadOnNecessaryEnable 调用' /home/art/test/qq.log | head -10"
-echo "=== 该段完整（含栈）==="
-$SSH "grep -a -A6 'QP\[19\]' /home/art/test/qq.log | head -14"

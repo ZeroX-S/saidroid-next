@@ -24,7 +24,7 @@ void *android_load_sphal_library(const char *n,int f){return dlopen(n,f);}
 int android_unload_sphal_library(void *h){return dlclose(h);}
 ''')
  common=root/'common.so';subprocess.run(['gcc','-shared','-fPIC',str(mock),'-o',str(common),'-ldl'],check=True)
- helper=root/'bridge.so';subprocess.run(['gcc','-shared','-fPIC','-O2','-Wall','-Wextra','-Werror','-DSD_HOST_LOADER_LIBRARY="'+str(common)+'"','-DSD_HOST_VNDK_LIBRARY="'+str(common)+'"',str(repo/'native/compat/api29-hardware-loader.c'),'-o',str(helper),'-ldl','-pthread'],check=True)
+ helper=root/'bridge.so';subprocess.run(['gcc','-shared','-fPIC','-O2','-Wall','-Wextra','-Werror','-DSD_HOST_LOADER_LIBRARY="'+str(common)+'"','-DSD_HOST_VNDK_LIBRARY="'+str(common)+'"',str(repo/'native/compat/runtime-hardware-loader.c'),'-o',str(helper),'-ldl','-pthread'],check=True)
  bridge=ctypes.CDLL(str(helper),mode=ctypes.RTLD_GLOBAL);guest=ctypes.CDLL(str(linker),mode=ctypes.RTLD_GLOBAL)
  load=bridge.bionic_android_load_sphal_library;load.argtypes=[ctypes.c_char_p,ctypes.c_int];load.restype=ctypes.c_void_p
  symbol=guest.bionic_dlsym;symbol.argtypes=[ctypes.c_void_p,ctypes.c_char_p];symbol.restype=ctypes.c_void_p

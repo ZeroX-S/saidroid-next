@@ -29,7 +29,7 @@ python3 native/hwui/build-helper-vm.py \
   build/hwui/headers build/hwui/libcxx-source \
   /var/tmp/saidroid-next-api29-native-20261025-r1/lib64 \
   build/hwui/native --compiler clang++
-python3 scripts/api29/build-product.py build/codex-api29/inputs \
+python3 scripts/runtime/build-product.py build/codex-api29/inputs \
   /var/tmp/saidroid-next-api29-product-hwui \
   --hwui-helper build/hwui/native/libsdhwui-native.so
 ```
@@ -47,7 +47,7 @@ product build. It is preloaded only inside that component's ART processes.
 The original host ART libraries and the nested source checkout stay intact.
 
 Then build the manager APK and package the component through the ordinary
-`scripts/api29` entry points. The packager records the native helper hash,
+`scripts/runtime` entry points. The packager records the native helper hash,
 ships the upstream boundary note, and selects the renderer in `runtime.json`.
 The existing launcher gains no privileges beyond its previous narrow scheduling
 capability. The Android process remains the ordinary phone user.

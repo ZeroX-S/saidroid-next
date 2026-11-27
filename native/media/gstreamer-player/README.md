@@ -18,7 +18,7 @@ Host header use that host for certificate identity. Network preparation runs on
 the worker rather than blocking the application's UI thread.
 
 Build the native library with `build-host-vm.py` and compose Java with
-`scripts/api29/build-media-player-runtime-vm.py` inside MeeGo Build. The Java
+`scripts/runtime/build-media-player-runtime-vm.py` inside MeeGo Build. The Java
 builder verifies its source baseline by reproducing the original class bytes;
 it copies into a new output directory and never edits frozen runtime inputs.
 Apply the existing hidden-API encoder before packaging. Preserve the original

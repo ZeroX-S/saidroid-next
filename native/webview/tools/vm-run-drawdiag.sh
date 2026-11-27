@@ -27,7 +27,7 @@ echo "=== 0. close all owned ==="
 scripts/lead_close_all.sh 2>&1 | tail -2
 
 echo "=== 1. deploy draw-audit component ==="
-python3 scripts/api29/deploy-component.py "$COMP" "$RUN" 2>&1 | tail -3 || { echo DEPLOY_FAILED; exit 3; }
+python3 scripts/runtime/deploy-component.py "$COMP" "$RUN" 2>&1 | tail -3 || { echo DEPLOY_FAILED; exit 3; }
 $SSH 'readlink /home/art/api29-root'
 
 echo "=== 2. launch QQ and wait for the login window ==="

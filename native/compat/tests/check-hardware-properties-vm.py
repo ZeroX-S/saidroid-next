@@ -30,7 +30,7 @@ int writes(void){return count;}const char *value(void){return saved;}
     helper=root/'helper.so'
     subprocess.run(['gcc','-shared','-fPIC','-O2','-Wall','-Wextra','-Werror',
                     '-DSD_HOST_PROPERTY_LIBRARY="'+str(host)+'"',
-                    str(repo/'native/compat/api29-hardware-properties.c'),'-o',str(helper),'-ldl'],check=True)
+                    str(repo/'native/compat/runtime-hardware-properties.c'),'-o',str(helper),'-ldl'],check=True)
     state=ctypes.CDLL(str(private));state.value.restype=ctypes.c_char_p
     bridge=ctypes.CDLL(str(helper));read=bridge.sd_import_host_hardware_properties
     read.argtypes=[ctypes.c_void_p];read.restype=ctypes.c_int

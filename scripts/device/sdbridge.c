@@ -516,7 +516,7 @@ Java_SdBridge_nativeAssetProbe(JNIEnv* env, jclass cls, jstring jdirs)
 {
     static char out[2048];
     out[0] = 0;
-    char line[400];
+    char line[1600];
 #define AP(...) do { snprintf(line, sizeof(line), __VA_ARGS__); \
         strncat(out, line, sizeof(out) - strlen(out) - 1); } while (0)
 
@@ -688,7 +688,9 @@ JNIEXPORT jboolean JNICALL Java_SdBridge_installGraphicsEnvironment(JNIEnv *e,jc
 /* Explicit VM diagnostic only: preserve exit status and expose its Java caller. */
 static void diagnostic_runtime_exit(JNIEnv *e,jclass cls,jint status){
     (void)cls;jclass thread=(*e)->FindClass(e,"java/lang/Thread");jmethodID dump=thread?(*e)->GetStaticMethodID(e,thread,"dumpStack","()V"):NULL;
-    if(dump)(*e)->CallStaticVoidMethod(e,thread,dump);fflush(NULL);_exit(status);
+    if(dump)(*e)->CallStaticVoidMethod(e,thread,dump);
+    fflush(NULL);
+    _exit(status);
 }
 static jstring (*diagnostic_native_load)(JNIEnv *,jstring,jobject,jclass);
 static jstring diagnostic_runtime_load(JNIEnv *e,jclass cls,jstring file,jobject loader,jclass caller){

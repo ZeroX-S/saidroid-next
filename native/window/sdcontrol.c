@@ -30,9 +30,12 @@ static jlong frame_number(JNIEnv *e,jclass c,jlong id){(void)c;return (*e)->Call
 static jint shared_mode(JNIEnv *e,jclass c,jlong id,jboolean enabled){(void)c;(void)(*e)->CallStaticLongMethod(e,store,next_frame,id);return enabled?-ENOTSUP:0;}
 static jboolean protected_support(JNIEnv *e,jclass c){(void)e;(void)c;return JNI_FALSE;}
 void sd_control_install(JNIEnv *e){
+    if((*e)->ExceptionCheck(e))return;
     (*e)->GetJavaVM(e,&control_vm);
     store=(*e)->NewGlobalRef(e,(*e)->FindClass(e,"SdSurfaceStore"));
+    if(!store||(*e)->ExceptionCheck(e))return;
     controls=(*e)->NewGlobalRef(e,(*e)->FindClass(e,"SdSurfaceControls"));
+    if(!controls||(*e)->ExceptionCheck(e))return;
 #define METHOD(target,name,signature) (*e)->GetStaticMethodID(e,target,name,signature)
     retain_id=METHOD(store,"retain","(J)J");release_id=METHOD(store,"release","(J)V");remove_id=METHOD(store,"remove","(J)V");
     get_surface=METHOD(store,"surfaceFromControl","(JJ)J");handle_id=METHOD(store,"handle","(J)Landroid/os/IBinder;");next_frame=METHOD(store,"nextFrame","(J)J");
@@ -47,20 +50,23 @@ void sd_control_install(JNIEnv *e){
         {"nativeSetAlpha","(JJF)V",alpha},{"nativeSetFlags","(JJII)V",flags},{"nativeSetMatrix","(JJFFFF)V",matrix},
         {"nativeSetWindowCrop","(JJIIII)V",crop},
         {"nativeRelease","(J)V",release_control},{"nativeDestroy","(J)V",destroy_control},{"nativeGetHandle","(J)Landroid/os/IBinder;",get_handle}};
-    if((*e)->RegisterNatives(e,(*e)->FindClass(e,"android/view/SurfaceControl"),control_methods,sizeof(control_methods)/sizeof(control_methods[0]))<0)return;
-    jclass version=(*e)->FindClass(e,"android/os/Build$VERSION");if(!version)return;
-    jfieldID sdk=(*e)->GetStaticFieldID(e,version,"SDK_INT","I");if(!sdk)return;
+    jclass sc_cls=(*e)->FindClass(e,"android/view/SurfaceControl");
+    if(!sc_cls||(*e)->RegisterNatives(e,sc_cls,control_methods,sizeof(control_methods)/sizeof(control_methods[0]))<0)return;
+    jclass version=(*e)->FindClass(e,"android/os/Build$VERSION");if(!version||(*e)->ExceptionCheck(e))return;
+    jfieldID sdk=(*e)->GetStaticFieldID(e,version,"SDK_INT","I");if(!sdk||(*e)->ExceptionCheck(e))return;
     jint api=(*e)->GetStaticIntField(e,version,sdk);(*e)->DeleteLocalRef(e,version);
+    if((*e)->ExceptionCheck(e))return;
     if(api>=29){
         JNINativeMethod modern_controls[]={{"nativeCopyFromSurfaceControl","(J)J",copy_control},
             {"nativeGetProtectedContentSupport","()Z",protected_support}};
-        if((*e)->RegisterNatives(e,(*e)->FindClass(e,"android/view/SurfaceControl"),modern_controls,2)<0)return;
+        if((*e)->RegisterNatives(e,sc_cls,modern_controls,2)<0)return;
     }
     JNINativeMethod surface_methods[]={
         {"nativeCreateFromSurfaceControl","(J)J",create_surface_from_control},
         {"nativeGetNextFrameNumber","(J)J",frame_number},{"nativeSetSharedBufferModeEnabled","(JZ)I",shared_mode},
         {"nativeSetAutoRefreshEnabled","(JZ)I",shared_mode}};
-    if((*e)->RegisterNatives(e,(*e)->FindClass(e,"android/view/Surface"),surface_methods,sizeof(surface_methods)/sizeof(surface_methods[0]))<0)return;
+    jclass surf_cls=(*e)->FindClass(e,"android/view/Surface");
+    if(!surf_cls||(*e)->RegisterNatives(e,surf_cls,surface_methods,sizeof(surface_methods)/sizeof(surface_methods[0]))<0)return;
     JNINativeMethod from_control={"nativeGetFromSurfaceControl",api>=29?"(JJ)J":"(J)J",api>=29?(void*)surface_from_control:(void*)create_surface_from_control};
-    (*e)->RegisterNatives(e,(*e)->FindClass(e,"android/view/Surface"),&from_control,1);
+    (*e)->RegisterNatives(e,surf_cls,&from_control,1);
 }

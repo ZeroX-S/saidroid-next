@@ -96,7 +96,16 @@ inline void save_json(const fs::path &p, const Json &v) {
   }
 }
 inline fs::path runtime_dir() {
-  fs::path p = "/run/user/" + std::to_string(getuid()) + "/saildroid";
+  fs::path base = "/run/user/" + std::to_string(getuid());
+  struct stat bst;
+  if (lstat(base.c_str(), &bst)) {
+    const char *xdg = getenv("XDG_RUNTIME_DIR");
+    if (!xdg || xdg[0] != '/' || lstat(xdg, &bst) || !S_ISDIR(bst.st_mode) ||
+        bst.st_uid != getuid() || (bst.st_mode & 077))
+      throw std::runtime_error("Cannot inspect runtime directory");
+    base = xdg;
+  }
+  fs::path p = base / "saildroid";
   struct stat st;
   if (lstat(p.c_str(), &st)) {
     if (errno != ENOENT || mkdir(p.c_str(), 0700))

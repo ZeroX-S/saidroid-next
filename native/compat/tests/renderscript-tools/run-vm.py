@@ -6,7 +6,7 @@ repo=Path(__file__).resolve().parents[4]
 with tempfile.TemporaryDirectory(prefix='sd-rs-tools-contract-') as directory:
  root=Path(directory);(root/'rs/bin').mkdir(parents=True);(root/'rs/lib').mkdir()
  helper=root/'bridge.so'
- subprocess.run(['gcc','-shared','-fPIC','-O2','-Wall','-Wextra','-Werror','-DSD_RS_TIMEOUT_MS=200','-o',str(helper),str(repo/'native/compat/api29-renderscript.c')],check=True)
+ subprocess.run(['gcc','-shared','-fPIC','-O2','-Wall','-Wextra','-Werror','-DSD_RS_TIMEOUT_MS=200','-o',str(helper),str(repo/'native/compat/runtime-renderscript.c')],check=True)
  fixture=root/'linker.c'
  fixture.write_text(r'''
 #include <stdlib.h>

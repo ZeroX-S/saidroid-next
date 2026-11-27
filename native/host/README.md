@@ -114,7 +114,7 @@ with the OLED off:
 
 ```sh
 python3 scripts/perf/close-owned-vm.py
-python3 scripts/api29/restore-native-baseline.py
+python3 scripts/runtime/restore-native-baseline.py
 ```
 
 This restores the saved r86 launch indirection and desktop entries. It is an
@@ -124,7 +124,7 @@ For this transition's exact source boundary, including exclusion of the
 independent IME/crypto working changes, use the frozen-base build driver:
 
 ```sh
-python3 scripts/api29/build-native-transition-vm.py \
+python3 scripts/runtime/build-native-transition-vm.py \
   build/evidence/startup-mapping-20261030/r86-predecessor \
   /var/tmp/saildroid-native-transition-new
 ```

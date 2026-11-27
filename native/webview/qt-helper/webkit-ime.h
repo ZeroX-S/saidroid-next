@@ -42,7 +42,8 @@ class WebIme {
         c->set_enable_preedit=+[](void *o,gboolean b){if(auto *s=owner(o))s->enabled=b;};
         c->get_preedit=+[](void *o,gchar **text,GList **underlines,guint *position){
             auto *s=owner(o);QByteArray bytes=s?s->preedit.toUtf8():QByteArray();
-            if(text)*text=g_strdup(bytes.constData());if(underlines)*underlines=nullptr;
+            if(text)*text=g_strdup(bytes.constData());
+            if(underlines)*underlines=nullptr;
             if(position)*position=s?guint(s->preedit.left(s->preeditCursor).toUcs4().size()):0;
         };
         c->filter_key_event=+[](void*,gpointer)->gboolean{return FALSE;};
@@ -108,7 +109,9 @@ public:
         }else if(op=="ime_preedit"){
             QString text=o.value("text").toString();bool started=preedit.isEmpty()&&!text.isEmpty();bool ended=!preedit.isEmpty()&&text.isEmpty();
             preedit=text;preeditCursor=qBound(0,o.value("cursor").toInt(text.size()),text.size());
-            if(started)g_signal_emit_by_name(context,"preedit-started");g_signal_emit_by_name(context,"preedit-changed");if(ended)g_signal_emit_by_name(context,"preedit-finished");
+            if(started)g_signal_emit_by_name(context,"preedit-started");
+            g_signal_emit_by_name(context,"preedit-changed");
+            if(ended)g_signal_emit_by_name(context,"preedit-finished");
         }else if(op=="ime_finish"){
             QString value=preedit;clearPreedit();if(!value.isEmpty()){QByteArray bytes=value.toUtf8();g_signal_emit_by_name(context,"committed",bytes.constData());}
         }else if(op=="ime_delete"){

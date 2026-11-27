@@ -1,8 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-echo "=== 现在时间与文件 ==="
-$SSH "date; ls -l --time-style=full-iso /home/art/live.rgba"
-echo "=== 最新心跳 ==="
-$SSH "grep -a 心跳 /home/art/test/live.log | tail -3"
-echo "=== 中心像素（用 od 看文件中间位置）==="
-$SSH "od -An -tx4 -j \$((15 + (540*540 + 270)*4)) -N 4 /home/art/live.rgba"

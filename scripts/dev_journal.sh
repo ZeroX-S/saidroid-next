@@ -1,6 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@bonito"
-echo "=== 最近的 lipstick 日志 ==="
-$SSH "journalctl -n 40 2>/dev/null | grep -iE 'screenshot|lipstick|volume' | tail -10"
-echo "=== 截图 policy ==="
-$SSH "ls /usr/share/sailfish-policy/ 2>/dev/null | head; grep -rl screenshot /usr/share/sailfish-policy* 2>/dev/null | head -3"

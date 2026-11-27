@@ -1,6 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-echo "=== QP 16 以后 ==="
-$SSH "grep -a 'QP\[' /home/art/test/qq.log | sed -n '/QP\[16\]/,\$p' | head -20"
-echo "=== 异常链 ==="
-$SSH "grep -av 'packed reloc' /home/art/test/qq.log | grep -a -A3 'Caused by\|FAIL\|Exception' | tail -30"

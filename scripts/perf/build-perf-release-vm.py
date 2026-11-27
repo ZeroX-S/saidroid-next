@@ -6,7 +6,7 @@ Run inside the MeeGo Build VM:
 
     python3 scripts/perf/build-perf-release-vm.py perf1 [--from-product DIR]
 
-The product is compiled by the repository's own `scripts/api29/build-product.py`
+The product is compiled by the repository's own `scripts/runtime/build-product.py`
 from the current worktree. The manifest records the git revision, the dirty
 file list and the hashes of the frame-path sources, so any unrelated edit from
 another work stream is visible in the evidence instead of silently mixed in.
@@ -37,7 +37,7 @@ def sha256(path):
 
 
 def build_native_library(product):
-    """Same command as scripts/api29/build-product.py, current sources."""
+    """Same command as scripts/runtime/build-product.py, current sources."""
     flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'wayland-client'],
                                     text=True).split()
     include = JAVA.parent / 'include'
@@ -105,7 +105,7 @@ def main():
         (product / 'libsdwindow.so').rename(product / 'libsdwindow.so.before-perf')
         build_native_library(product)
     else:
-        subprocess.run([sys.executable, str(REPO / 'scripts/api29/build-product.py'),
+        subprocess.run([sys.executable, str(REPO / 'scripts/runtime/build-product.py'),
                         str(INPUTS), str(product)], check=True)
     jni_contract_gate(product / 'libsdwindow.so')
     manifest = json.loads((product / 'manifest.json').read_text())
@@ -129,7 +129,7 @@ def main():
     if args.skip_package:
         return
 
-    subprocess.run([sys.executable, str(REPO / 'scripts/api29/package-component.py'),
+    subprocess.run([sys.executable, str(REPO / 'scripts/runtime/package-component.py'),
                     str(INPUTS), str(framework), str(CORE), str(product), str(MANAGER),
                     str(NATIVE), str(LINKER), str(component),
                     '--binder-device', '/home/art/runtime/binder/binder'], check=True)

@@ -1,0 +1,29 @@
+{
+  "scope": "Canonical Android10 atomic default OS getter/CAS plus ForwardingOs null delegate rejection and delegate description. Legacy public rawOs and all old methods retained. Only existing member access change is canonical volatile on Libcore.os; all old natives unchanged. Actual caller threads invoke real guarded delegate; no fake syscall results.",
+  "files": {
+    "libcore/io/Libcore.java": {
+      "sha256": "1b25b1f614e568ae39dcb0ce87b12a019bf0f17085e242790dc1a6b6b6dc360d",
+      "baseline_source": "third_party/art-standalone/libcore/luni/src/main/java/libcore/io/Libcore.java",
+      "baseline_sha256": "6582dd2f47e159fe8e68642f8bdbd5ad65c30c8225b87f5d5e1a173d07e23ff9",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/os215-inputs-v1/Libcore.java",
+      "reference_sha256": "431bdcd774518d817eb1728413aa1ecd43301db5dfa09e2551c03b5bd501685d",
+      "reference_url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/luni/src/main/java/libcore/io/Libcore.java?format=TEXT"
+    },
+    "libcore/io/Os.java": {
+      "sha256": "70eb6f30c4ce26122668c3cf93a7bc88abb198ca76a218dc1ad9c896281a8090",
+      "baseline_source": "scripts/runtime/core/blockguard-compat/libcore/io/Os.java",
+      "baseline_sha256": "60932b3b583cb546658186e96433744d7b448e2b1a2eedd0e34335cd7178d185",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/os215-inputs-v1/Os.java",
+      "reference_sha256": "6283b3ab98e8332b8e500d90b44c7805e1d30574707fc0c2f3a10b572abbcf83",
+      "reference_url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/luni/src/main/java/libcore/io/Os.java?format=TEXT"
+    },
+    "libcore/io/ForwardingOs.java": {
+      "sha256": "ef1c78565b5dcc6712b1c788bc594df4adf869838bce980d6911fbc75d41cae8",
+      "baseline_source": "scripts/runtime/core/os-extended-io/libcore/io/ForwardingOs.java",
+      "baseline_sha256": "bec65f50037c7597948f453291ed47780fac7f716959321671a5b6fb8b8d8387",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/os215-inputs-v1/ForwardingOs.java",
+      "reference_sha256": "8414b6c6a19c8c9260ed553553d4d5add1b2e47eadcd90a53a402a810b21a532",
+      "reference_url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/luni/src/main/java/libcore/io/ForwardingOs.java?format=TEXT"
+    }
+  }
+}

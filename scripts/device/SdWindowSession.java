@@ -37,6 +37,9 @@ public final class SdWindowSession implements InvocationHandler {
     private int windowOrder;
     private int keyboardHeight;
     private final LinkedHashMap<Integer,Touch> touches=new LinkedHashMap<Integer,Touch>();
+    private ArrayList<Window> cachedOrderedWindows;
+    private final MotionEvent.PointerProperties[][] pointerPropertiesPool=new MotionEvent.PointerProperties[33][];
+    private final MotionEvent.PointerCoords[][] pointerCoordsPool=new MotionEvent.PointerCoords[33][];
     private static final boolean traceInput=Boolean.getBoolean("saidroid.diagnostics.input")||System.getenv("SAILDROID_TRACE_INPUT")!=null;
     /* 环境变量门控（sdtool --env 能直接给）：触摸从 native 进来之后，Java 这一层
        在哪一步被丢掉，必须能一眼看出来——是没找到目标窗口、还是 InputChannel 拒收。
@@ -100,7 +103,7 @@ public final class SdWindowSession implements InvocationHandler {
             InputChannel destination=null;for(Object arg:args)if(arg instanceof InputChannel)destination=(InputChannel)arg;
             if(destination==null)throw new IllegalArgumentException("InputChannel output required");theirs.transferTo(destination);
         }
-        w.id=createId(w);windows.put(client.asBinder(),w);updateLayers();
+        w.id=createId(w);windows.put(client.asBinder(),w);cachedOrderedWindows=null;updateLayers();
         updateFocus();
         System.err.println("SDWINDOW_SESSION=added|title="+w.attributes.getTitle());
         return 2|(touchMode?1:0); // ADD_FLAG_APP_VISIBLE and actual touch-mode state.
@@ -127,8 +130,10 @@ public final class SdWindowSession implements InvocationHandler {
         }
     }
     private ArrayList<Window> orderedWindows(){
+        if(cachedOrderedWindows!=null)return cachedOrderedWindows;
         ArrayList<Window> ordered=new ArrayList<Window>(windows.values());
         java.util.Collections.sort(ordered,new java.util.Comparator<Window>(){public int compare(Window a,Window b){int type=Integer.compare(layerType(a),layerType(b));return type!=0?type:Integer.compare(a.order,b.order);}});
+        cachedOrderedWindows=ordered;
         return ordered;
     }
     private void updateLayers(){int z=0;for(Window w:orderedWindows())SdSurfaceStore.z(w.surface,z++);}
@@ -156,7 +161,7 @@ public final class SdWindowSession implements InvocationHandler {
         }
     }
     private int relayout(Object[] a)throws Exception{
-        Window w=window(a[0]);if(a[2]!=null)w.attributes.copyFrom((WindowManager.LayoutParams)a[2]);w.visibility=(Integer)a[5];
+        Window w=window(a[0]);int oldLayer=layerType(w);if(a[2]!=null)w.attributes.copyFrom((WindowManager.LayoutParams)a[2]);if(layerType(w)!=oldLayer){cachedOrderedWindows=null;updateLayers();}w.visibility=(Integer)a[5];
         int requestedW=(Integer)a[3],requestedH=(Integer)a[4];
         int width=w.attributes.width==WindowManager.LayoutParams.MATCH_PARENT?SdDisplayShim.WIDTH:Math.max(1,Math.min(SdDisplayShim.WIDTH,requestedW));
         int height=w.attributes.height==WindowManager.LayoutParams.MATCH_PARENT?SdDisplayShim.HEIGHT:Math.max(1,Math.min(SdDisplayShim.HEIGHT,requestedH));
@@ -190,7 +195,7 @@ public final class SdWindowSession implements InvocationHandler {
         if(n.equals("addWithoutInputChannel"))return add(a,false,false);
         if(n.equals("relayout"))return relayout(a);
         if(n.equals("remove")){
-            Window w=window(a[0]);if(gesture==w)deliver(MotionEvent.ACTION_CANCEL,0,0,0,System.nanoTime());windows.remove(w.client.asBinder());if(w.sender!=null)w.sender.dispose();if(w.channel!=null)w.channel.dispose();SdSurfaceStore.remove(w.surface);updateLayers();updateFocus();return null;
+            Window w=window(a[0]);if(gesture==w)deliver(MotionEvent.ACTION_CANCEL,0,0,0,System.nanoTime());windows.remove(w.client.asBinder());cachedOrderedWindows=null;if(w.sender!=null)w.sender.dispose();if(w.channel!=null)w.channel.dispose();SdSurfaceStore.remove(w.surface);updateLayers();updateFocus();return null;
         }
         if(n.equals("getInTouchMode"))return touchMode;
         if(n.equals("setInTouchMode")){setInTouchMode((Boolean)a[0]);return null;}
@@ -245,6 +250,16 @@ public final class SdWindowSession implements InvocationHandler {
         catch(android.os.RemoteException failure){throw new IllegalStateException(failure);}
     }
     public static void input(int action,int id,float x,float y,long timestamp){instance.deliver(action,id,x,y,timestamp);}
+    private MotionEvent.PointerProperties[] obtainPointerProperties(int count){
+        MotionEvent.PointerProperties[] array=pointerPropertiesPool[count];
+        if(array==null){array=new MotionEvent.PointerProperties[count];for(int i=0;i<count;i++)array[i]=new MotionEvent.PointerProperties();pointerPropertiesPool[count]=array;}
+        return array;
+    }
+    private MotionEvent.PointerCoords[] obtainPointerCoords(int count){
+        MotionEvent.PointerCoords[] array=pointerCoordsPool[count];
+        if(array==null){array=new MotionEvent.PointerCoords[count];for(int i=0;i<count;i++)array[i]=new MotionEvent.PointerCoords();pointerCoordsPool[count]=array;}
+        return array;
+    }
     private void deliver(int action,int id,float x,float y,long timestamp){
         long time=timestamp/1000000;
         if(diagInput)System.err.println("SDINPUT=deliver|action="+action+"|id="+id+"|x="+x+"|y="+y+"|windows="+windows.size()+"|touches="+touches.size());
@@ -266,14 +281,14 @@ public final class SdWindowSession implements InvocationHandler {
             if(action==MotionEvent.ACTION_UP)touches.remove(id);if(action==MotionEvent.ACTION_CANCEL)touches.clear();return;
         }
         if(traceInput)System.err.println("SDINPUT=wayland|action="+action+"|id="+id+"|x="+x+"|y="+y);
-        int index=0,changed=0;MotionEvent.PointerProperties[] properties=new MotionEvent.PointerProperties[touches.size()];MotionEvent.PointerCoords[] coordinates=new MotionEvent.PointerCoords[touches.size()];
+        int count=touches.size(),index=0,changed=0;MotionEvent.PointerProperties[] properties=obtainPointerProperties(count);MotionEvent.PointerCoords[] coordinates=obtainPointerCoords(count);
         for(java.util.Map.Entry<Integer,Touch> item:touches.entrySet()){
             Touch point=item.getValue();if(item.getKey()==id)changed=index;
-            MotionEvent.PointerProperties property=new MotionEvent.PointerProperties();property.id=point.pointerId;property.toolType=MotionEvent.TOOL_TYPE_FINGER;properties[index]=property;
-            MotionEvent.PointerCoords coordinate=new MotionEvent.PointerCoords();coordinate.x=point.x-gesture.frame.left;coordinate.y=point.y-gesture.frame.top;coordinate.pressure=action==MotionEvent.ACTION_CANCEL||(action==MotionEvent.ACTION_UP&&item.getKey()==id)?0:1;coordinate.size=1;coordinates[index]=coordinate;index++;
+            MotionEvent.PointerProperties property=properties[index];property.clear();property.id=point.pointerId;property.toolType=MotionEvent.TOOL_TYPE_FINGER;
+            MotionEvent.PointerCoords coordinate=coordinates[index];coordinate.clear();coordinate.x=point.x-gesture.frame.left;coordinate.y=point.y-gesture.frame.top;coordinate.pressure=action==MotionEvent.ACTION_CANCEL||(action==MotionEvent.ACTION_UP&&item.getKey()==id)?0:1;coordinate.size=1;index++;
         }
-        int eventAction=action;if(touches.size()>1&&(action==MotionEvent.ACTION_DOWN||action==MotionEvent.ACTION_UP))eventAction=(action==MotionEvent.ACTION_DOWN?MotionEvent.ACTION_POINTER_DOWN:MotionEvent.ACTION_POINTER_UP)|(changed<<MotionEvent.ACTION_POINTER_INDEX_SHIFT);
-        MotionEvent event=MotionEvent.obtain(downTime,time,eventAction,touches.size(),properties,coordinates,0,0,1,1,0,0,InputDevice.SOURCE_TOUCHSCREEN,0);
+        int eventAction=action;if(count>1&&(action==MotionEvent.ACTION_DOWN||action==MotionEvent.ACTION_UP))eventAction=(action==MotionEvent.ACTION_DOWN?MotionEvent.ACTION_POINTER_DOWN:MotionEvent.ACTION_POINTER_UP)|(changed<<MotionEvent.ACTION_POINTER_INDEX_SHIFT);
+        MotionEvent event=MotionEvent.obtain(downTime,time,eventAction,count,properties,coordinates,0,0,1,1,0,0,InputDevice.SOURCE_TOUCHSCREEN,0);
         try{boolean accepted=gesture.sender.sendInputEvent(++sequence,event);if(diagInput)System.err.println("SDINPUT=sent|sequence="+sequence+"|accepted="+accepted+"|action="+eventAction);if(!accepted&&action!=MotionEvent.ACTION_CANCEL)throw new IllegalStateException("InputChannel rejected touch event");}finally{event.recycle();}
         if(action==MotionEvent.ACTION_UP)touches.remove(id);if(action==MotionEvent.ACTION_CANCEL)touches.clear();if(touches.isEmpty())gesture=null;
     }

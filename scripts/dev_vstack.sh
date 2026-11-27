@@ -1,6 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-echo "=== StackOverflow 栈的前 40 帧 ==="
-$SSH "grep -a '    at ' /home/art/test/view.log | head -40"
-echo "=== 非 WindowManagerGlobal 的帧 ==="
-$SSH "grep -a '    at ' /home/art/test/view.log | grep -v 'WindowManagerGlobal.getWindowManagerService' | head -25"

@@ -1,6 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-echo "=== 进程 ==="
-$SSH "pgrep -f LiveProbe >/dev/null && echo RUNNING || echo EXITED"
-echo "=== 日志尾部 ==="
-$SSH "grep -av 'packed reloc' /home/art/test/live.log | tail -14"

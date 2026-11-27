@@ -51,7 +51,7 @@ zypper in libepoxy libwpe wpebackend-fdo wpewebkit2 wpewebkit2-qt5
 native/                 原生宿主、兼容层、窗口、输入、媒体、RTP 与 WebView
 scripts/device/         Java 运行时与系统服务适配
 scripts/api28/          API 28 框架、SDK 公共成员、SIP/RTP 与原生加载器构建工具
-scripts/api29/          共享核心覆盖层、组件打包与回归用例（目标固定为 API 28）
+scripts/runtime/        共享核心覆盖层、组件打包与回归用例（目标固定为 API 28）
 scripts/compat/         JNI、服务路由、SDK 覆盖率与打包 ART 预检工具
 scripts/packaging/      版本隔离 RPM、Binder 配置、激活和回退工具
 scripts/cts/            CTS 执行与统计工具
@@ -60,7 +60,7 @@ third_party/            固定版本的上游 Git 子模块
 patches/third-party/    上游依赖的本地改动
 ```
 
-构建流程与依赖说明见 [docs/BUILD.md](docs/BUILD.md)，端口与兼容性回归测试见 [docs/TESTING-PORT-COMPATIBILITY.md](docs/TESTING-PORT-COMPATIBILITY.md)。
+构建流程与依赖说明见 [docs/BUILD.md](docs/BUILD.md)，端口与兼容性回归测试见 [docs/TESTING-PORT-COMPATIBILITY.md](docs/TESTING-PORT-COMPATIBILITY.md)，架构演进路线与分阶段实操手册见 [docs/ROADMAP.md](docs/ROADMAP.md) 及 [docs/OPTIMIZATION-HANDBOOK.md](docs/OPTIMIZATION-HANDBOOK.md)。
 
 ## 许可
 

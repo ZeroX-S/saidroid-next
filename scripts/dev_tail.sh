@@ -1,5 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-$SSH "grep -a 'AP\[' /home/art/test/ap.log | sed -n '10,30p'"
-echo "=== 尾部 ==="
-$SSH "grep -av 'packed reloc' /home/art/test/ap.log | tail -8"

@@ -22,7 +22,7 @@ cleanup() {
 }
 trap cleanup EXIT
 python3 scripts/perf/close-owned-vm.py
-python3 scripts/api29/deploy-component.py /var/tmp/saidroid-next-api29-component-perf-${SAILDROID_TEST_BUILD:-r84-webview} "$label"
+python3 scripts/runtime/deploy-component.py /var/tmp/saidroid-next-api29-component-perf-${SAILDROID_TEST_BUILD:-r84-webview} "$label"
 python3 native/webview/qt-helper/install-probe-apk-vm.py ${SAILDROID_TEST_APK_TAG:-r84}
 bash scripts/sd.sh sync
 # A separate bounded screen watchdog still blanks if the driver/test fails.

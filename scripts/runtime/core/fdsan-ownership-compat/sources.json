@@ -1,0 +1,82 @@
+{
+  "scope": "Canonical Android10 real owning file stream/RandomAccessFile/datagram/TCP server/client/accepted descriptor registration. Early IoUtils wiring through actual Linux fdsan JNI,4Os/query/forwarding methods and owner-preserving asynchronous close. All old ABI/native declarations retained; old IoUtils exchangeOwnerTag stays registered. Real process-private native backend/tagged kernel close; no query derived from Java field, no originaltests/phone/fullCTS claim.",
+  "files": {
+    "libcore/io/Os.java": {
+      "sha256": "99b90400b68692bed99dc19c10865b641b137e85530048126a21a79da39ab52b",
+      "baseline_source": "scripts/runtime/core/os-default-compat/libcore/io/Os.java",
+      "baseline_sha256": "70eb6f30c4ce26122668c3cf93a7bc88abb198ca76a218dc1ad9c896281a8090",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/fdsan219-inputs-v1/Os.java",
+      "reference_sha256": "6283b3ab98e8332b8e500d90b44c7805e1d30574707fc0c2f3a10b572abbcf83"
+    },
+    "libcore/io/Linux.java": {
+      "sha256": "f621f0c76e270e4850e193625f0f54c7297997f696e5a7f961a341ed0cac4b25",
+      "baseline_source": "scripts/runtime/core/os-extended-io/libcore/io/Linux.java",
+      "baseline_sha256": "ba1726527b19be565180729ba7580f7f9c039a1d2ff9f89b3beb336093d93dc2",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/fdsan219-inputs-v1/Linux.java",
+      "reference_sha256": "50630b31f563052b4b4f3660b447be4765476333f09cb168e6b6a231a5349e02"
+    },
+    "libcore/io/ForwardingOs.java": {
+      "sha256": "cf92516e5de9f9f8e6a0683f84627cf22c576e948bb4483316a23c8de61af8ce",
+      "baseline_source": "scripts/runtime/core/os-default-compat/libcore/io/ForwardingOs.java",
+      "baseline_sha256": "ef1c78565b5dcc6712b1c788bc594df4adf869838bce980d6911fbc75d41cae8",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/fdsan219-inputs-v1/Os.java",
+      "reference_sha256": "6283b3ab98e8332b8e500d90b44c7805e1d30574707fc0c2f3a10b572abbcf83"
+    },
+    "libcore/io/BlockGuardOs.java": {
+      "sha256": "51b2a65796602952e14d7d65320bdaa1f45c4baf7c899137d5b0f355d2a0aa80",
+      "baseline_source": "scripts/runtime/core/blockguard-compat/libcore/io/BlockGuardOs.java",
+      "baseline_sha256": "ee6308b2b0c24b9b0c3a53b585d4c82cacd53aa0bf1dd5c3383cee7fa43da09f",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/fdsan219-inputs-v1/Os.java",
+      "reference_sha256": "6283b3ab98e8332b8e500d90b44c7805e1d30574707fc0c2f3a10b572abbcf83"
+    },
+    "libcore/io/IoUtils.java": {
+      "sha256": "2b66412ae8f309f29aa78969699b22ad89e957f743691f255721507c8b62c81f",
+      "baseline_source": "scripts/runtime/core/IoUtils.java",
+      "baseline_sha256": "1d85df773264026d1b9dea9a28439ddd8f6e193265677d967ff835f04ae187c5",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/fdsan219-inputs-v1/IoUtils.java",
+      "reference_sha256": "3824c7197b1f5dc65b74642ac479d8ac576be02c051b86bfbd8b74100521ed59"
+    },
+    "libcore/io/IoBridge.java": {
+      "sha256": "406adecf7bcad80213914e45bb00745398cad2d6ddb78953d426e7c9bb58e076",
+      "baseline_source": "third_party/art-standalone/libcore/luni/src/main/java/libcore/io/IoBridge.java",
+      "baseline_sha256": "dd66cf550520162984710c7fae7c637294edfc538272a0f97fd908dc3bc95747",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/fdsan219-inputs-v1/IoBridge.java",
+      "reference_sha256": "ede5ce4bb88542afcc7c186bd7acde97455bdb879611c8c6684a95b33be21c84"
+    },
+    "java/io/FileInputStream.java": {
+      "sha256": "04f7322d2f0724a5abdf27a122dd76d263a1756e985e675b8647d4309d033689",
+      "baseline_source": "scripts/runtime/core/blockguard-compat/java/io/FileInputStream.java",
+      "baseline_sha256": "f5321963d78326aeb307c714027265f1167f5b8d3fbfd1c39a6012d8382b48be",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/fdsan219-inputs-v1/FileInputStream.java",
+      "reference_sha256": "92c001c07237650472a7b99e4c4abf60f4cd315a37bddd45d5ab19adfdf6ee45"
+    },
+    "java/io/FileOutputStream.java": {
+      "sha256": "177b871b318932cd3aa2a91733e02133a1272be3993f1b58b2e309a1c41764e7",
+      "baseline_source": "scripts/runtime/core/blockguard-compat/java/io/FileOutputStream.java",
+      "baseline_sha256": "3126c76eeae54e27cca9bae962d552ca568b46a997a07a2f10453d04f487d3ac",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/fdsan219-inputs-v1/FileOutputStream.java",
+      "reference_sha256": "b37124887f8a1db623580c94616e2b6535705415c472b5d2521ec1e7ace4e6a0"
+    },
+    "java/io/RandomAccessFile.java": {
+      "sha256": "b960b87e570a154e84aba998a894fcbd789125bd7c78f34afb26893f1e6562a3",
+      "baseline_source": "third_party/art-standalone/libcore/ojluni/src/main/java/java/io/RandomAccessFile.java",
+      "baseline_sha256": "4b8f4671f5813417b7bc9624d8f15a88b3f7d892479e831be22beeb98e648445",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/fdsan219-inputs-v1/RandomAccessFile.java",
+      "reference_sha256": "7aa8071f67947a0cbeef408d7bac8d917a136ee387f64977be830b113ad06a03"
+    },
+    "java/net/PlainSocketImpl.java": {
+      "sha256": "3c1a816ae0d4a1d443d3977211f54d2f9a61b386bcfdd9d9c7a9d90c6f3e3b4b",
+      "baseline_source": "third_party/art-standalone/libcore/ojluni/src/main/java/java/net/PlainSocketImpl.java",
+      "baseline_sha256": "9f22ec7edb0b8c7e8082e86828c7fc1216af34d06c489a767e85d68a85d4aa33",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/fdsan219-socket-v1/PlainSocketImpl.java",
+      "reference_sha256": "c10998ceb0f3094a2d3c635754307422f655c6d3a66b7bde3d9a3e88c76f9b8f"
+    },
+    "java/net/AbstractPlainDatagramSocketImpl.java": {
+      "sha256": "1a4816ad451e0db55d928de1be23bb0b11ff1a51f7799be7adad19c972f761e4",
+      "baseline_source": "third_party/art-standalone/libcore/ojluni/src/main/java/java/net/AbstractPlainDatagramSocketImpl.java",
+      "baseline_sha256": "69482e5ca1200b6145dc1884a0ba2e474b0b203c2f6c7393e087f745cf5ab075",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/fdsan219-socket-v1/AbstractPlainDatagramSocketImpl.java",
+      "reference_sha256": "493838101e0f39ba148841c7a653cf7f9f147dd6339e0fae2be21aff4172d74b"
+    }
+  }
+}

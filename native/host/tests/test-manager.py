@@ -30,7 +30,9 @@ try:
  assert 'error' in request(b,'SetState org.example.a closing')
  assert 'error' in request(a,'Close org.example.a stale-generation')
  assert a.poll() is None, 'stale close reached the live generation'
- lock=open('/run/user/0/saildroid/org.example.a.lock','r+')
+ rt_base=Path(f'/run/user/{os.getuid()}')
+ if not rt_base.exists():rt_base=Path(os.environ['XDG_RUNTIME_DIR'])
+ lock=open(rt_base/'saildroid/org.example.a.lock','r+')
  try:fcntl.lockf(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);raise AssertionError('live host update lock missing')
  except BlockingIOError:pass
  wrong,rw=start('org.example.a.service.bad','service','wrong-generation');assert 'error' in rw;wrong.wait(timeout=3)
@@ -68,7 +70,7 @@ try:
  # re-adopted or signalled by the manager after restart.
  unrelated=subprocess.Popen(['/bin/sleep','30']);children.append(unrelated)
  raw=Path('/proc/'+str(unrelated.pid)+'/stat').read_text();fields=raw[raw.rfind(') ')+2:].split()
- forged=Path('/run/user/0/saildroid/org.example.forged.json')
+ forged=rt_base/'saildroid/org.example.forged.json'
  forged.write_text(json.dumps(dict(schema=3,pid=unrelated.pid,start_ticks=int(fields[19]),boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip(),component=str(root),package='org.example.forged',role='activity',launch_id='forged')))
  daemon.terminate();daemon.wait(timeout=3)
  daemon=subprocess.Popen([str(exe),'--session'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
@@ -80,9 +82,16 @@ try:
  assert request(c,'GetState org.example.forged')['reply']=="('{\"running\":false}',)"
  assert unrelated.poll() is None,'unrelated executable was signalled'
  forged.unlink();unrelated.terminate();unrelated.wait(timeout=3)
+ base_sig=request(c,'SignalCount')['signals']
  assert request(c,'SetState org.example.c art-running')['reply']=='()'
+ woke1=request(c,f'WaitSignal {base_sig}')
+ assert woke1['woke'] and woke1['signals']>base_sig,'StateChanged signal did not wake client on SetState'
+ base_sig2=woke1['signals']
  assert request(c,'TryAcquireHeavy')['reply']=='(true,)'
- print('NATIVE_MANAGER=PASS|cases=dedup,concurrent-apps,fair-admission,lease-auth,stale-close,install-lock,service-generation,owner-cleanup,immediate-relaunch-cleanup,helper-group-cleanup,unrelated-survival,relaunch,dead-admission-release,manager-readoption,forged-executable-rejected')
+ assert request(c,'ReleaseHeavy')['reply']=='()'
+ woke2=request(c,f'WaitSignal {base_sig2}')
+ assert woke2['woke'] and woke2['signals']>base_sig2,'StateChanged signal did not wake client on ReleaseHeavy'
+ print('NATIVE_MANAGER=PASS|cases=dedup,concurrent-apps,fair-admission,lease-auth,stale-close,install-lock,service-generation,owner-cleanup,immediate-relaunch-cleanup,helper-group-cleanup,unrelated-survival,relaunch,dead-admission-release,manager-readoption,forged-executable-rejected,state-changed-signal')
 finally:
  for p in children:
   try:stop(p)

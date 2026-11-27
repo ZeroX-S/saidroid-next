@@ -67,7 +67,7 @@ public final class SdSurfaceStore {
     private static long lastLayerAlphaMilli=-1,lastLayerFull=-1,lastLayerIdentity=-1;
     /* Reused every frame: this is the hot path. */
     private static final java.util.ArrayList<Layer> orderedLayers=new java.util.ArrayList<Layer>();
-    private static final android.graphics.Paint layerPaint=new android.graphics.Paint();
+    private static android.graphics.Paint layerPaint;
     private static final java.util.Comparator<Layer> byDepth=new java.util.Comparator<Layer>() {
         @Override public int compare(Layer a,Layer b){return Integer.compare(a.z,b.z);}
     };
@@ -286,6 +286,7 @@ public final class SdSurfaceStore {
         long startedDraw=perfTrace?System.nanoTime():0;
         orderedLayers.clear();orderedLayers.addAll(layers.values());java.util.Collections.sort(orderedLayers,byDepth);
         for(Layer layer:orderedLayers)if(layer.visible&&!layer.removed&&layer.bitmap!=null){
+            if(layerPaint==null)layerPaint=new android.graphics.Paint();
             if(layer.dim>0)compositor.drawColor(Math.round(layer.dim*255)<<24);
             int save=compositor.save();compositor.translate(layer.frame.left,layer.frame.top);compositor.concat(layer.matrix);
             if(layer.crop!=null)compositor.clipRect(layer.crop);

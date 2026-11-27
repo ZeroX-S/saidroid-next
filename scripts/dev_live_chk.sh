@@ -1,6 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-echo "=== events.txt 内容与大小 ==="
-$SSH "ls -l /home/art/events.txt; od -c /home/art/events.txt | head -5"
-echo "=== 再看 live.rgba mtime ==="
-$SSH "ls -l /home/art/live.rgba"

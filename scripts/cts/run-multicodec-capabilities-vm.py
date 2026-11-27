@@ -18,7 +18,7 @@ repo = Path(__file__).resolve().parents[2]
 base = repo / 'build/evidence/cts-frame-repair-20261031'
 built = Path('/var/tmp/saidroid-private-multicodec-capabilities-20261031')
 manifest = json.loads((built / 'manifest.json').read_text())
-source = repo / 'scripts/api29/tests/media/MultiCodecCapabilitiesInstrumentation.java'
+source = repo / 'scripts/runtime/tests/media/MultiCodecCapabilitiesInstrumentation.java'
 assert hashlib.sha256(source.read_bytes()).hexdigest() == manifest['source_sha256']
 apk = manifest['apks'][0]
 assert apk['debuggable'] is False

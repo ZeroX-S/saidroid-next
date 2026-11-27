@@ -1,5 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-$SSH "grep -a 'QP\[' /home/art/test/qq.log | sed -n '/QP\[24\]/,\$p' | head -10"
-echo "=== 当前失败原因 ==="
-$SSH "grep -a 'Caused by\|UnsatisfiedLink\|Exception\|System.exit' /home/art/test/qq.log | grep -av 'packed reloc' | tail -8 | cut -c1-190"

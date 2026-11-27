@@ -1,0 +1,17 @@
+--- scripts/runtime/core/inet-numeric-compat/java/net/Inet6AddressImpl.java
++++ scripts/runtime/core/icmp-cleanup-compat/java/net/Inet6AddressImpl.java
+@@ -262,9 +262,11 @@
+         } catch (IOException e) {
+             // Silently ignore and fall back.
+         } finally {
+-            try {
+-                Libcore.os.close(fd);
+-            } catch (ErrnoException e) { }
++            if (fd != null) {
++                try {
++                    Libcore.os.close(fd);
++                } catch (ErrnoException e) { }
++            }
+         }
+ 
+         return false;

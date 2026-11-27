@@ -23,7 +23,7 @@ cleanup() {
 trap cleanup EXIT
 scripts/lead_close_all.sh 2>&1 | tail -2
 echo "=== deploy ==="
-python3 scripts/api29/deploy-component.py "$COMP" "$RUN" 2>&1 | tail -1
+python3 scripts/runtime/deploy-component.py "$COMP" "$RUN" 2>&1 | tail -1
 scripts/sd.sh launch --wait 60 --env SAILDROID_DIAG_INPUT=1 --env SAILDROID_ANDROID_LOG_STDERR=1 2>&1 | tail -2
 scripts/sd.sh wait --wait 60 --marker SDWINDOW_SESSION=drawn 2>&1 | tail -1
 sleep 3

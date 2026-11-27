@@ -149,9 +149,11 @@ bool AudioStream::set(int mode, int socket, sockaddr_storage *remote,
     mKeepAlive = 0;
 
     // Initialize random bits.
-    read(gRandom, &mSequence, sizeof(mSequence));
-    read(gRandom, &mTimestamp, sizeof(mTimestamp));
-    read(gRandom, &mSsrc, sizeof(mSsrc));
+    if (read(gRandom, &mSequence, sizeof(mSequence)) < 0 ||
+        read(gRandom, &mTimestamp, sizeof(mTimestamp)) < 0 ||
+        read(gRandom, &mSsrc, sizeof(mSsrc)) < 0) {
+        // Retain zero-initialized fallback if random fd is unavailable.
+    }
 
     mDtmfEvent = -1;
     mDtmfStart = 0;

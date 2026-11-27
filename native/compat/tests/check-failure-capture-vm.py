@@ -26,7 +26,7 @@ void AddSpecialSignalHandlerFn(int s,struct action*a){
     subprocess.run(['gcc','-shared','-fPIC','-Wl,-soname,libart.so','-o',str(root/'libart.so'),str(source)],check=True)
     helper=root/'capture.so'
     subprocess.run(['gcc','-shared','-fPIC','-O2','-o',str(helper),
-                    str(repo/'native/compat/api29-diagnostics.c'),'-ldl'],check=True)
+                    str(repo/'native/compat/runtime-diagnostics.c'),'-ldl'],check=True)
     source=root/'main.c'
     source.write_text(r'''
 #include <assert.h>

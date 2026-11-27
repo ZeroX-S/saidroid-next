@@ -32,6 +32,7 @@ public final class SdWebEngine {
         void frame(Bitmap bitmap, long sequence);
         void failed(String reason);
     }
+    private static final java.util.concurrent.atomic.AtomicLong nextShmId = new java.util.concurrent.atomic.AtomicLong();
     private final Listener listener;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ArrayBlockingQueue<JSONObject> commands = new ArrayBlockingQueue<JSONObject>(128);
@@ -39,6 +40,9 @@ public final class SdWebEngine {
     private java.lang.Process process;
     private Bitmap bitmap;
     private byte[] pixels;
+    private File shmFile;
+    private RandomAccessFile shmHandle;
+    private java.nio.MappedByteBuffer shmSlot0, shmSlot1;
     private final String helper, profile;
     private final int width, height;
 
@@ -55,9 +59,36 @@ public final class SdWebEngine {
         Thread starter = new Thread(new Runnable() { public void run() { start(); } },"sd-webview-reader");
         starter.setDaemon(true);starter.start();
     }
+    private void initSharedBuffers(File fallbackDir) {
+        if (System.getenv("SAILDROID_NO_WEBVIEW_SHM") != null) return;
+        File candidate = null;
+        RandomAccessFile raf = null;
+        try {
+            File runtimeDir = new File("/run/user/" + android.os.Process.myUid() + "/saildroid");
+            File parent = runtimeDir.isDirectory() && runtimeDir.canWrite() ? runtimeDir : fallbackDir;
+            candidate = new File(parent, "webview-shm-" + android.os.Process.myPid() + "-" + nextShmId.incrementAndGet() + ".bin");
+            java.nio.file.Files.deleteIfExists(candidate.toPath());
+            java.nio.file.Files.createFile(candidate.toPath(),
+                    java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+                            java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")));
+            raf = new RandomAccessFile(candidate, "rw");
+            raf.setLength(2L * MAX_FRAME_BYTES);
+            java.nio.channels.FileChannel channel = raf.getChannel();
+            shmSlot0 = channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0L, MAX_FRAME_BYTES);
+            shmSlot1 = channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, MAX_FRAME_BYTES, MAX_FRAME_BYTES);
+            shmFile = candidate;
+            shmHandle = raf;
+        } catch (Throwable unavailable) {
+            shmSlot0 = null;
+            shmSlot1 = null;
+            if (raf != null) try { raf.close(); } catch (IOException ignored) {}
+            if (candidate != null) candidate.delete();
+        }
+    }
     private void start() {
         try {
             File home = new File(profile); if (!home.isDirectory() && !home.mkdirs()) throw new IOException("profile directory unavailable");
+            synchronized(this) { if (closed) return; initSharedBuffers(home); }
             ProcessBuilder builder = new ProcessBuilder(helper,String.valueOf(width),String.valueOf(height));
             Map<String,String> env=builder.environment();
             // Do not feed the ART preload/linker configuration into a glibc host.
@@ -66,8 +97,9 @@ public final class SdWebEngine {
             env.put("XDG_RUNTIME_DIR","/run/user/"+android.os.Process.myUid());
             env.put("WAYLAND_DISPLAY","../../display/wayland-0");
             env.put("DBUS_SESSION_BUS_ADDRESS","unix:path=/run/user/"+android.os.Process.myUid()+"/dbus/user_bus_socket");
+            if (shmFile != null) env.put("SAILDROID_WEBVIEW_SHM_PATH", shmFile.getAbsolutePath());
             java.lang.Process child=builder.start();
-            synchronized(this) { process=child; if(closed){child.destroy();return;} }
+            synchronized(this) { process=child; if(closed){child.destroy();cleanupSharedBuffers();return;} }
             Thread errors=new Thread(new Runnable(){public void run(){
                 try(BufferedReader log=new BufferedReader(new InputStreamReader(child.getErrorStream(),"UTF-8"))){
                     String line;while((line=log.readLine())!=null)System.err.println("SDWEBHOST_LOG="+line);
@@ -90,16 +122,29 @@ public final class SdWebEngine {
                     if("frame".equals(event.optString("event"))){
                         final int w=event.getInt("width"),h=event.getInt("height"),count=event.getInt("bytes");
                         final long seq=event.getLong("seq");
-                        if(w<1||h<1||w>MAX_HOST_WIDTH||h>MAX_HOST_HEIGHT||(long)w*h*4!=count||count>MAX_FRAME_BYTES||!"rgba8888".equals(event.getString("format")))throw new IOException("invalid frame geometry");
-                        if(pixels==null||pixels.length!=count)pixels=new byte[count];
-                        input.readFully(pixels);final byte[] framePixels=pixels;
+                        final String format=event.getString("format");
+                        if(w<1||h<1||w>MAX_HOST_WIDTH||h>MAX_HOST_HEIGHT||(long)w*h*4!=count||count>MAX_FRAME_BYTES)throw new IOException("invalid frame geometry");
+                        final ByteBuffer frameSource;
+                        if("shm_rgba8888".equals(format)){
+                            int slot=event.getInt("slot");
+                            java.nio.MappedByteBuffer mapped=slot==0?shmSlot0:(slot==1?shmSlot1:null);
+                            if(mapped==null)throw new IOException("shared frame buffer unavailable");
+                            ByteBuffer dup=mapped.duplicate();
+                            dup.position(0);
+                            dup.limit(count);
+                            frameSource=dup.slice();
+                        }else if("rgba8888".equals(format)){
+                            if(pixels==null||pixels.length!=count)pixels=new byte[count];
+                            input.readFully(pixels);
+                            frameSource=ByteBuffer.wrap(pixels);
+                        }else throw new IOException("invalid frame format: "+format);
                         ui.post(new Runnable(){public void run(){
                             if(closed)return;
                             try{
                                 if(bitmap==null||bitmap.getWidth()!=w||bitmap.getHeight()!=h){
                                     if(bitmap!=null)bitmap.recycle();bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);
                                 }
-                                bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(framePixels));
+                                bitmap.copyPixelsFromBuffer(frameSource);
                                 if(System.getenv("SAILDROID_WEBVIEW_DIAGNOSTICS")!=null && seq<=20) {
                                     try(java.io.FileOutputStream dump=new java.io.FileOutputStream(profile+"/frame-"+seq+".png")){bitmap.compress(Bitmap.CompressFormat.PNG,100,dump);}
                                     catch(IOException diagnostic){System.err.println("SDWEBVIEW=frame_dump_failed");}
@@ -122,9 +167,14 @@ public final class SdWebEngine {
         if(closed)return;close();
         ui.post(new Runnable(){public void run(){listener.failed(reason);}});
     }
+    private synchronized void cleanupSharedBuffers() {
+        if (shmHandle != null) { try { shmHandle.close(); } catch (IOException ignored) {} shmHandle = null; }
+        if (shmFile != null) { shmFile.delete(); shmFile = null; }
+    }
     public synchronized void close() {
         if(closed)return;closed=true;commands.clear();
         if(process!=null)process.destroy();
+        cleanupSharedBuffers();
         // Bitmap may still be referenced by the current UI draw. It is reclaimed
         // with the provider; never recycle it from this background thread.
     }

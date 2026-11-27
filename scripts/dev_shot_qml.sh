@@ -1,6 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@bonito"
-echo "=== Screenshot.qml ==="
-$SSH "cat /usr/share/lipstick-jolla-home-qt5/volumecontrol/Screenshot.qml"
-echo "=== VolumeControl.qml 里截图触发部分 ==="
-$SSH "grep -n -B3 -A10 'screenshot\|Screenshot' /usr/share/lipstick-jolla-home-qt5/volumecontrol/VolumeControl.qml | head -40"

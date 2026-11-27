@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""Build the API28 product and run compatibility checks from source."""
+from pathlib import Path
+import argparse,subprocess,os,json,hashlib,shutil,sys
+p = argparse.ArgumentParser(description=__doc__)
+p.add_argument('inputs', type=Path)
+p.add_argument('output', type=Path)
+p.add_argument('--hwui-helper', type=Path)
+p.add_argument('--pthread-helper', type=Path)
+p.add_argument('--framework', type=Path)
+p.add_argument('--r8', type=Path)
+p.add_argument('--api', type=int, choices=(28,), default=28)
+p.add_argument('--compat-only', action='store_true', help='Run Java/D8/source checks, or packaged ART checks with --compat-runtime-root')
+p.add_argument('--compat-runtime-root', type=Path)
+p.add_argument('--compat-core', type=Path, action='append', default=[], help='Additional standalone-core class/JAR providers for the source gate')
+p.add_argument('--compat-apk', type=Path, action='append', default=[])
+args = p.parse_args()
+repo = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(repo / 'scripts/compat'))
+from product_sources import JAVA_DIRECTORIES
+
+java_directories = [repo / name for name in JAVA_DIRECTORIES]
+compatibility = ['python3', str(repo / 'scripts/compat/run-preflight.py')]
+for apk in args.compat_apk:
+    compatibility.extend(['--apk', str(apk)])
+r8 = args.r8 or args.inputs / 'r8-8.3.37.jar'
+framework_names = {28: 'android-all-9-robolectric-4913185-2.jar'}
+if args.compat_only and args.compat_runtime_root:
+    if args.compat_core:
+        p.error('--compat-core applies to Java source checks')
+    api = json.loads((args.compat_runtime_root / 'runtime.json').read_text())['api']
+    if api != 28:
+        p.error('Only API28 packaged runtimes are supported')
+    fw = args.framework or args.inputs / framework_names[api]
+    compatibility.extend(['--runtime-root', str(args.compat_runtime_root), '--framework', str(fw),
+                          '--r8', str(r8), '--output', str(args.output), '--headless', '--elf'])
+    raise SystemExit(subprocess.call(compatibility))
+if args.compat_runtime_root:
+    p.error('--compat-runtime-root is used with --compat-only')
+assert not args.output.exists()
+args.output.mkdir(parents=True)
+java_home = os.environ.get('JAVA_HOME')
+if not java_home:
+    legacy_java = Path('/tmp/jdkfull/jdk-21.0.13+9')
+    compiler = shutil.which('javac')
+    if not legacy_java.is_dir() and not compiler:
+        p.error('Set JAVA_HOME or install a JDK providing javac')
+    java_home = legacy_java if legacy_java.is_dir() else Path(compiler).resolve().parents[1]
+java = Path(java_home) / 'bin'
+api = 28
+fw = args.framework or args.inputs / framework_names[api]
+voip_references = args.output / 'sip-references'
+subprocess.run(['python3', str(repo / 'scripts/api28/build-sip-service.py'), '--references-only',
+                '--framework', str(fw), '--output', str(voip_references)], check=True)
+subprocess.run(['python3',str(repo/'native/webview/tools/check-clinit-safety.py'),str(repo/'scripts/device/SdWebViewProvider.java')],check=True)
+classes=args.output/'classes';classes.mkdir()
+names='SdBridge SdStartup SdClassLoaderNamespaces SdGraphicsEnvironment SdRuntime SdRuntimeDiagnostics SdViewDump SdViewRepair SdRuntimeControl SdKernelServices SdBinderRegistry SdSensorService SdServiceEndpoint SdRemoteServices SdApkPackage SdAppPermissions SdActivityManagerService SdActivityTaskManager SdActivityHost SdServiceHost SdServiceManagerStub SdServices SdPackageManagerService SdStorageManager SdUsers SdDisplayShim SdWindowHost SdWindowManager SdWindowSession SdDisplayFrames SdSurfaceStore SdSurfaceControls SdMaliit SdInputManager SdInputMethods SdConnectivity SdHostState SdPower SdKeyguard SdNotificationPolicy SdContentService SdContentProviders SdSettingsProvider SdWebEngine SdWebInterfaces SdWebCookies SdWebViewProvider SdCryptoProvider'.split()
+names.extend(['SdRemoteActivities','SdProcessStartup','SdBattery','SdAudio','SdInstrumentation','SdNetworkStats','SdThermal','SdDeviceIdle'])
+names.extend(['SdDocumentPicker','SdDocumentsProvider','SdTimeZone','SdPendingIntents','SdManifestReceivers'])
+sources=[repo/'scripts/device'/(name+'.java')for name in names]+sorted((repo/'scripts/device/org/saildroid/manager').glob('*.java'))+sorted((repo/'scripts/device/org/saildroid/host').glob('*.java'))
+sources.append(repo/'scripts/device/SdSharedLibraries.java')
+sources.append(repo/'scripts/device/SdInstrumentationFiles.java')
+sources.append(repo/'scripts/device/SdWifi.java')
+sources.append(repo/'scripts/device/SdTls.java')
+sources.append(repo/'scripts/device/SdDownloadsProvider.java')
+sources.append(repo/'native/media/gstreamer-player/SdMediaDataSource.java')
+with (args.output / 'javac.log').open('xb') as log:
+    subprocess.run([str(java / 'javac'), '--release', '8', '-encoding', 'UTF-8', '-nowarn',
+                    '-cp', os.pathsep.join([str(voip_references / 'references.jar'), str(fw)]),
+                    '-sourcepath', os.pathsep.join(map(str, java_directories)), '-d', str(classes),
+                    *map(str, sources)], check=True, stdout=log, stderr=subprocess.STDOUT)
+compiled_sources = set(sources)
+for compiled in classes.rglob('*.class'):
+    relative = compiled.relative_to(classes).with_name(compiled.stem.split('$', 1)[0] + '.java')
+    for directory in java_directories:
+        source = directory / relative
+        if source.is_file():
+            compiled_sources.add(source)
+            break
+sources = sorted(compiled_sources)
+(args.output / 'java-sources.json').write_text(json.dumps({str(source.relative_to(repo)):
+    hashlib.sha256(source.read_bytes()).hexdigest() for source in sources}, indent=2) + '\n', encoding='utf-8')
+with (args.output / 'd8.log').open('xb') as log:
+    subprocess.run([str(java / 'java'), '-Xmx2g', '-cp', str(r8), 'com.android.tools.r8.D8',
+                    '--release', '--min-api', str(api), '--lib', str(fw),
+                    '--classpath', str(voip_references / 'references.jar'),
+                    '--output', str(args.output / 'runtime.jar'),
+                    *map(str, sorted(classes.rglob('*.class')))],
+                   check=True, stdout=log, stderr=subprocess.STDOUT)
+compatibility.extend(['--framework', str(fw), '--api', str(api), '--classes', str(args.output / 'runtime.jar'),
+                      '--classes', str(voip_references / 'references.jar'),
+                      '--output', str(args.output / 'compatibility')])
+for core in args.compat_core:
+    compatibility.extend(['--classes', str(core)])
+subprocess.run(compatibility, check=True)
+if args.compat_only:
+    print('API' + str(api) + '_PRODUCT=compatibility_checked|' + str(args.output))
+    raise SystemExit(0)
+with(args.output/'native-build.log').open('xb')as log:
+ subprocess.run(['g++','-c','-fPIC','-O2','-Wall','-fno-exceptions','-fno-rtti','-o',str(args.output/'binder.o'),str(repo/'native/compat/runtime-binder.cpp'),'-I'+str(java.parent/'include'),'-I'+str(java.parent/'include/linux')],check=True,stdout=log,stderr=subprocess.STDOUT)
+ subprocess.run(['bash',str(repo/'native/host/build-host-vm.sh'),str(args.output)],check=True,stdout=log,stderr=subprocess.STDOUT)
+ subprocess.run(['gcc','-c','-fPIC','-O2','-Wall','-Dsd_activation_start=sd_runtime_control_start','-Dsd_activation_stop=sd_runtime_control_stop','-o',str(args.output/'runtime-control.o'),str(repo/'native/window/sdactivate.c')],check=True,stdout=log,stderr=subprocess.STDOUT)
+ subprocess.run(['gcc','-shared','-fPIC','-O2','-Wall','-o',str(args.output/'libsdbridge.so'),str(repo/'scripts/device/sdbridge.c'),str(repo/'native/compat/runtime-memory.c'),str(repo/'native/compat/runtime-eventlog.c'),str(repo/'native/compat/runtime-hardware-properties.c'),str(args.output/'binder.o'),str(args.output/'runtime-control.o'),str(repo/'native/launcher/sdruntime-control.c'),'-I'+str(java.parent/'include'),'-I'+str(java.parent/'include/linux'),'-ldl','-pthread'],check=True,stdout=log,stderr=subprocess.STDOUT)
+ xml='/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml'
+ subprocess.run(['wayland-scanner','client-header',xml,str(args.output/'xdg-shell-client-protocol.h')],check=True,stdout=log,stderr=subprocess.STDOUT)
+ subprocess.run(['wayland-scanner','private-code',xml,str(args.output/'xdg-shell-protocol.c')],check=True,stdout=log,stderr=subprocess.STDOUT)
+ subprocess.run(['wayland-scanner','client-header',str(repo/'native/window/surface-extension.xml'),str(args.output/'surface-extension-client-protocol.h')],check=True,stdout=log,stderr=subprocess.STDOUT)
+ subprocess.run(['wayland-scanner','private-code',str(repo/'native/window/surface-extension.xml'),str(args.output/'surface-extension-protocol.c')],check=True,stdout=log,stderr=subprocess.STDOUT)
+ flags=subprocess.check_output(['pkg-config','--cflags','--libs','wayland-client','libpng'],text=True).split()
+ subprocess.run(['gcc','-shared','-fPIC','-O2','-Wall','-o',str(args.output/'libsdwindow.so'),str(repo/'native/window/sdwindow.c'),str(repo/'native/window/native-display-events.c'),str(repo/'native/hwui/sd-hwui-host.c'),str(repo/'native/hwui/sd-hwui-background.c'),str(repo/'native/window/sdcontrol.c'),str(repo/'native/window/sdactivate.c'),str(args.output/'xdg-shell-protocol.c'),str(args.output/'surface-extension-protocol.c'),'-I'+str(args.output),'-I'+str(java.parent/'include'),'-I'+str(java.parent/'include/linux'),*flags,'-pthread','-ldl'],check=True,stdout=log,stderr=subprocess.STDOUT)
+ subprocess.run(['gcc','-shared','-fPIC','-O2','-Wall','-o',str(args.output/'libsdhost29.so'),str(repo/'native/compat/runtime-host.c'),str(repo/'native/compat/runtime-fdsan.c'),str(repo/'native/compat/runtime-signal.c'),str(repo/'native/compat/runtime-diagnostics.c'),str(repo/'native/compat/runtime-regex.c'),str(repo/'native/compat/runtime-egl-host.c'),str(repo/'native/compat/runtime-thread.c'),str(repo/'native/compat/runtime-cfi.c'),str(repo/'native/compat/runtime-renderscript.c'),str(repo/'native/compat/runtime-native-loader.c'),str(repo/'native/compat/runtime-hardware-loader.c'),str(repo/'native/compat/runtime-shared-dex.c'),'-I'+str(java.parent/'include'),'-I'+str(java.parent/'include/linux'),'-ldl','-pthread'],check=True,stdout=log,stderr=subprocess.STDOUT)
+import json as _json
+xml=(repo/'native/ime/minputmethodcontext1interface.xml').read_text()
+(args.output/'maliit-client-xml.h').write_text('static const char maliit_client_xml[]='+_json.dumps(xml)+';\n')
+ime_flags=subprocess.check_output(['pkg-config','--cflags','--libs','gio-2.0'],text=True).split()
+with(args.output/'ime-build.log').open('xb')as log:
+ subprocess.run(['gcc','-shared','-fPIC','-O2','-Wall','-o',str(args.output/'libsdmaliit.so'),str(repo/'native/ime/sdmaliit.c'),'-I'+str(args.output),'-I'+str(java.parent/'include'),'-I'+str(java.parent/'include/linux'),*ime_flags,'-pthread'],check=True,stdout=log,stderr=subprocess.STDOUT)
+subprocess.run(['bash',str(repo/'native/webview/qt-helper/build-host-vm.sh'),str(args.output/'webview-host')],check=True)
+record=dict(api=api,native_nice_limit=40,native_bootstrap=dict(schema='saildroid-native-bootstrap-v1',capabilities='cap_dac_override,cap_sys_resource=ep'),sources={str(f.relative_to(repo)):hashlib.sha256(f.read_bytes()).hexdigest()for f in sources},files={n:hashlib.sha256((args.output/n).read_bytes()).hexdigest()for n in ['runtime.jar','libsdbridge.so','libsdwindow.so','libsdhost29.so','libsdmaliit.so','saildroid-app','saildroid-host','libsdhostapi.so','libsdvoip.so']})
+record['compatibility_preflight'] = dict(result='compatibility/result.json',
+    sha256=hashlib.sha256((args.output / 'compatibility/result.json').read_bytes()).hexdigest())
+record['webview_host']=dict(files={name:hashlib.sha256((args.output/'webview-host'/name).read_bytes()).hexdigest() for name in ['sdwebviewd','sdwebview-host','webview-engine.qml','webview-host-env.json']},sources={str(f.relative_to(repo)):hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted((repo/'native/webview/qt-helper').rglob('*')) if f.is_file() and f.suffix in ['.cpp','.h','.qml','.sh','.md','.json']})
+native_sources=[repo/'native/api28-jni-entries.inc',repo/'scripts/device/sdbridge.c']
+native_sources+=sorted((repo/'native/compat').glob('*.[ch]'))+sorted((repo/'native/window').glob('*.c'))+sorted((repo/'native/hwui').glob('*.c'))+sorted((repo/'native/hwui').glob('*.cpp'))
+native_sources+=sorted((repo/'native/host').glob('*.cpp'))+sorted((repo/'native/host').glob('*.hpp'))+sorted((repo/'native/host').glob('*.c'))+sorted((repo/'native/host').glob('*.sh'))+sorted((repo/'native/host/third_party').glob('*'))
+native_sources+=sorted((repo/'native/rtp').glob('*'))
+record['native_sources']={str(f.relative_to(repo)):hashlib.sha256(f.read_bytes()).hexdigest() for f in native_sources}
+record['application_filesystem_policy']=dict(schema='saildroid-app-filesystem-v1',backend='kernel-seccomp-tsync',hardlinks_errno='EACCES',scope='application-and-declared-processes',excluded_roles=['manager','broker','session'],source_sha256=record['native_sources']['native/host/app-filesystem-policy.hpp'])
+if args.hwui_helper:
+ import shutil
+ helper=args.hwui_helper;assert helper.is_file()
+ assert 'AArch64' in subprocess.check_output(['readelf','-h',str(helper)],text=True)
+ shutil.copyfile(helper,args.output/'libsdhwui-native.so')
+ record['hwui_helper']=dict(sha256=hashlib.sha256(helper.read_bytes()).hexdigest(),source_sha256=hashlib.sha256((repo/'native/hwui/sd-hwui-native.cpp').read_bytes()).hexdigest())
+if args.pthread_helper:
+ import shutil
+ helper=args.pthread_helper;assert helper.is_file()
+ assert 'AArch64' in subprocess.check_output(['readelf','-h',str(helper)],text=True)
+ shutil.copyfile(helper,args.output/'libpthread_bio.so.0')
+ record['pthread_helper']=dict(sha256=hashlib.sha256(helper.read_bytes()).hexdigest())
+(args.output/'manifest.json').write_text(json.dumps(record,indent=2)+'\n');print('API'+str(api)+'_PRODUCT=compiled|'+str(args.output))

@@ -3,8 +3,6 @@
 JAVA_DIRECTORIES = (
     'scripts/device',
     'scripts/device/sip',
-    'scripts/api29/pending-intent-compat/source/scripts/device',
-    'scripts/api29/app-startup-compat/source/scripts/device',
     'native/media/gstreamer-player',
     'native/media/droid-camera',
 )

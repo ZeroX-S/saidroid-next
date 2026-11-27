@@ -1,0 +1,53 @@
+{
+  "scope": "Only original Android10 public realpath adapter, splice forwarding/interface/native declarations with genuine BlockGuard disk notifications and four native-initialized O_DIRECT/splice flag fields. All previous methods/native declarations retained; requires matching native JNI/constant additions. Native-initialized fields are declared before the static native initialization block, preserving runtime values.",
+  "files": {
+    "android/system/Os.java": {
+      "sha256": "8b03ad610b08defd42ebb70f8c57728decd101b2bba36a15fc70e05cd7ed4f68",
+      "baseline_source": "scripts/runtime/core/os-sendfile/android/system/Os.java",
+      "baseline_sha256": "eaa4d347bf6edc8d2e282a09def559c382976ec391c7d3658201c85665565cb9",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/os199-inputs-v1/Os.java",
+      "reference_sha256": "2f79f9b8c8b5fb4ca045126b16c2be7af893df37eda4a4a75e4f6e120416c252",
+      "reference_url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/luni/src/main/java/android/system/Os.java?format=TEXT"
+    },
+    "android/system/OsConstants.java": {
+      "sha256": "a30659b25e5feca9a5109413324d75737c9824678ca5c88ad45258800c7beb81",
+      "baseline_source": "scripts/runtime/core/socket-flags/android/system/OsConstants.java",
+      "baseline_sha256": "abf62c698a59352cb99706f76e0d247c1eb10ac2ce5d187e9d7cd31a9712db36",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/os199-inputs-v1/OsConstants.java",
+      "reference_sha256": "21266352386a3745ef47e532501072af21221959c0b6253360290d220bf2c41a",
+      "reference_url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/luni/src/main/java/android/system/OsConstants.java?format=TEXT"
+    },
+    "libcore/io/Os.java": {
+      "sha256": "1bd22e845c2b7a1c14d88318030a8b4eaea1fd43724d1f18c7417d49a8af6f87",
+      "baseline_source": "third_party/art-standalone/libcore/luni/src/main/java/libcore/io/Os.java",
+      "baseline_sha256": "77785cd26c12439baebde5f2767667ba720ba88a2e84363eb5ba31c1eca0f66b",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/os199-inputs-v1/InternalOs.java",
+      "reference_sha256": "6283b3ab98e8332b8e500d90b44c7805e1d30574707fc0c2f3a10b572abbcf83",
+      "reference_url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/luni/src/main/java/libcore/io/Os.java?format=TEXT"
+    },
+    "libcore/io/Linux.java": {
+      "sha256": "ba1726527b19be565180729ba7580f7f9c039a1d2ff9f89b3beb336093d93dc2",
+      "baseline_source": "third_party/art-standalone/libcore/luni/src/main/java/libcore/io/Linux.java",
+      "baseline_sha256": "3a9fe553d572bb9b4181e5f71fe46704cbc81371eeae246d1e641ea693200885",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/os199-inputs-v1/Linux.java",
+      "reference_sha256": "50630b31f563052b4b4f3660b447be4765476333f09cb168e6b6a231a5349e02",
+      "reference_url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/luni/src/main/java/libcore/io/Linux.java?format=TEXT"
+    },
+    "libcore/io/ForwardingOs.java": {
+      "sha256": "bec65f50037c7597948f453291ed47780fac7f716959321671a5b6fb8b8d8387",
+      "baseline_source": "third_party/art-standalone/libcore/luni/src/main/java/libcore/io/ForwardingOs.java",
+      "baseline_sha256": "61c8d2ee72f885d86de4480825cc944cf8bc92bc60ac50b98d115d964f861c11",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/os199-inputs-v1/ForwardingOs.java",
+      "reference_sha256": "8414b6c6a19c8c9260ed553553d4d5add1b2e47eadcd90a53a402a810b21a532",
+      "reference_url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/luni/src/main/java/libcore/io/ForwardingOs.java?format=TEXT"
+    },
+    "libcore/io/BlockGuardOs.java": {
+      "sha256": "3e8111b6ef7da0ea90cbfa25c75fa4c096bc47f3a5a638e5b26abc963f0ea8eb",
+      "baseline_source": "scripts/runtime/core/BlockGuardOs.java",
+      "baseline_sha256": "69edcbce4e22c97d23f6ac25d8786fa2d3a55f03d09954c7805928509a5a9a5e",
+      "reference": "build/evidence/cts-frame-repair-20261031/aosp-extra/os199-inputs-v1/BlockGuardOs.java",
+      "reference_sha256": "77cffd6ef71835fd2e399bef6b488641c678e5b8b2a5273c80e68e4401c32254",
+      "reference_url": "https://android.googlesource.com/platform/libcore/+/android-10.0.0_r16/luni/src/main/java/libcore/io/BlockGuardOs.java?format=TEXT"
+    }
+  }
+}

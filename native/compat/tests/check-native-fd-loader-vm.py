@@ -10,7 +10,7 @@ with tempfile.TemporaryDirectory(prefix='sd-native-fd-')as directory:
  os.environ['BIONIC_TRANSLATION_CONFIG_DIR']=str(root/'config');os.environ['SAILDROID_DATA_DIR']=str(root)
  fixture=root/'fixture.c';fixture.write_text('static int value;int increment(void){return ++value;}\n')
  subprocess.run(['gcc','-shared','-fPIC','-nostdlib','-Wl,--hash-style=both','-Wl,-soname,liboriginal.so','-o',str(root/'original.so'),str(fixture)],check=True)
- helper=root/'loader.so';subprocess.run(['gcc','-shared','-fPIC','-O2','-Wall','-Wextra','-Werror','-o',str(helper),str(repo/'native/compat/api29-native-loader.c'),'-ldl','-pthread'],check=True)
+ helper=root/'loader.so';subprocess.run(['gcc','-shared','-fPIC','-O2','-Wall','-Wextra','-Werror','-o',str(helper),str(repo/'native/compat/runtime-native-loader.c'),'-ldl','-pthread'],check=True)
  guest=ctypes.CDLL(str(linker),mode=ctypes.RTLD_GLOBAL);bridge=ctypes.CDLL(str(helper),use_errno=True)
  open_fd=bridge.bionic_android_dlopen_ext;open_fd.restype=ctypes.c_void_p;open_fd.argtypes=[ctypes.c_char_p,ctypes.c_int,ctypes.POINTER(Info)]
  error=bridge.bionic_dlerror;error.restype=ctypes.c_char_p

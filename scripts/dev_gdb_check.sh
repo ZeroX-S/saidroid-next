@@ -1,6 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-echo "=== 设备上有 gdb / lldb 吗 ==="
-$SSH "which gdb lldb strace 2>/dev/null; ls /usr/bin | grep -E '^gdb|^lldb' | head -3"
-echo "=== 再看一眼崩溃前 QP 最后一段 ==="
-$SSH "grep -a 'QP\[' /home/art/test/qq.log | tail -4"

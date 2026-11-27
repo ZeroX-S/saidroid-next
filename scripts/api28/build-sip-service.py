@@ -74,8 +74,7 @@ def main():
     assert digest(arguments.framework) == 'cf4aed5e458deb48ddc0ca92fc25156e6f478d9d5c1d948cdd1817a67ee11b32'
     assert digest(arguments.r8) == '59753e70a74f918389cc87f1b7d66b5c0862932559167425708ded159e3de439'
     source_names = ['scripts/device/' + name + '.java' for name in
-        ('SdAudio', 'SdAppPermissions', 'SdPackageManagerService', 'SdServices', 'SdBinderRegistry', 'SdRtp')]
-    source_names += ['scripts/api29/pending-intent-compat/source/scripts/device/SdPendingIntents.java']
+        ('SdAudio', 'SdAppPermissions', 'SdPackageManagerService', 'SdServices', 'SdBinderRegistry', 'SdRtp', 'SdPendingIntents')]
     source_names += [path.relative_to(repository).as_posix() for path in sorted((repository / 'scripts/device/sip').glob('*.java'))]
     families = {Path(name).stem for name in source_names}
     sys.path.insert(0, str(repository / 'scripts/compat'))
@@ -158,7 +157,7 @@ def main():
                  '-d', str(rebuilt_classes), *[str(arguments.baseline_source / name) for name in baseline_names]],
                  label + '-baseline-rebuild-javac.log')
             if label == 'service' and arguments.baseline_java21_javac:
-                pending_name = 'scripts/api29/pending-intent-compat/source/scripts/device/SdPendingIntents.java'
+                pending_name = 'scripts/runtime/pending-intent-compat/source/scripts/device/SdPendingIntents.java'
                 run([arguments.baseline_java21_javac, '--release', '8', '-encoding', 'UTF-8', '-nowarn',
                      '-sourcepath', '', '-cp', os.pathsep.join([classpath, str(current_classes)]),
                      '-d', str(rebuilt_classes), str(arguments.baseline_source / pending_name)],

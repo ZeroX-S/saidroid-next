@@ -1,8 +1,0 @@
-export SSHPASS="${SSHPASS:?Set SSHPASS for device development}"
-SSH="sshpass -e ssh -o StrictHostKeyChecking=no root@bonito"
-echo "=== SDBRIDGE 预载/加载行 ==="
-$SSH "grep -a 'SDBRIDGE' /home/art/test/ap.log | head -12"
-echo "=== 有没有 bionic linker 的告警 ==="
-$SSH "grep -a 'bionic_linker\|not handled\|may need to be wrapped' /home/art/test/ap.log | head -10"
-echo "=== libc.so / libc_bio 的 SONAME ==="
-$SSH "readelf -d /home/art/bio2/libc_bio.so.0 2>/dev/null | grep SONAME; ls -l /home/art/bio2/libc.so 2>/dev/null"
