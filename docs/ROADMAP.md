@@ -1,6 +1,6 @@
 # SailDroid 架构审查与后续优化路线图
 
-本文梳理 SailDroid（Android 9 / API 28 独立 ART 运行时）现行架构的核心短板、关键性能瓶颈及分阶段（P0~P3）演进路线，指导后续版本迭代。
+本文梳理 SailDroid（Android 9 / API 28 独立 ART 运行时）现行架构的核心短板、关键性能瓶颈及分阶段（P0~P3）演进路线，指导后续版本迭代。针对 P1.5~P3 各模块的具体实现设计、防死锁守卫、避坑核对表与本地 Sprint 执行计划详见配套手册 [`docs/OPTIMIZATION-HANDBOOK.md`](OPTIMIZATION-HANDBOOK.md)。
 
 ---
 

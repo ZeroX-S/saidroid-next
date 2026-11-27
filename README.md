@@ -60,7 +60,7 @@ third_party/            固定版本的上游 Git 子模块
 patches/third-party/    上游依赖的本地改动
 ```
 
-构建流程与依赖说明见 [docs/BUILD.md](docs/BUILD.md)，端口与兼容性回归测试见 [docs/TESTING-PORT-COMPATIBILITY.md](docs/TESTING-PORT-COMPATIBILITY.md)，架构演进与性能优化路线见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+构建流程与依赖说明见 [docs/BUILD.md](docs/BUILD.md)，端口与兼容性回归测试见 [docs/TESTING-PORT-COMPATIBILITY.md](docs/TESTING-PORT-COMPATIBILITY.md)，架构演进路线与分阶段实操手册见 [docs/ROADMAP.md](docs/ROADMAP.md) 及 [docs/OPTIMIZATION-HANDBOOK.md](docs/OPTIMIZATION-HANDBOOK.md)。
 
 ## 许可
 
